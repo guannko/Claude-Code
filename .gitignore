@@ -1,0 +1,42 @@
+# Секретные данные — НИКОГДА не коммитить
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.so
+
+# Виртуальное окружение
+venv/
+env/
+.venv/
+
+# База данных — локальные данные, не для репо
+database/*.db
+*.db
+*.sqlite
+*.sqlite3
+
+# Логи
+logs/
+*.log
+nohup.out
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Кэш pytest / coverage
+.pytest_cache/
+.coverage
+htmlcov/
