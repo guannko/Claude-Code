@@ -57,63 +57,44 @@ from .db import (
     update_master_name,
     update_master_description,
     toggle_master_active,
-    # Loyalty & birthdays
     increment_visit_count,
     get_user_visit_count,
     update_user_birthdate,
     get_birthday_users_today,
-    # Reviews
     create_review,
     get_review_by_booking,
     get_master_reviews,
     get_avg_rating,
     get_bookings_for_review,
     mark_review_requested,
-    # Gallery
     add_gallery_photo,
     get_gallery_by_category,
     get_all_gallery,
     delete_gallery_photo,
-    # Client notes
     save_client_note,
     get_client_note,
-    # Attendance
     update_booking_attended,
-    # Broadcast
     get_all_user_ids,
-    # Reports
     get_period_stats,
-    # Salon settings
-    get_setting,
-    set_setting,
-    get_all_settings,
-    get_system_lang,
-    # GDPR
-    mark_gdpr_accepted,
-    delete_user_data,
-    # Master custom slots
     add_master_custom_slot,
     get_master_custom_slots,
     has_master_custom_slots,
     delete_master_custom_slot,
     clear_master_custom_slots,
-    # Services & categories
+    get_setting, set_setting, get_all_settings, get_system_lang,
+    mark_gdpr_accepted, delete_user_data,
     seed_services,
-    get_categories,
-    get_category_by_key,
-    get_db_services_by_category,
-    get_db_service_by_id,
+    get_categories, get_category_by_key,
+    get_db_services_by_category, get_db_service_by_id,
     get_all_services_admin,
-    add_db_service,
-    update_db_service,
-    delete_db_service,
-    add_db_category,
-    update_db_category,
+    add_db_service, update_db_service, delete_db_service,
+    add_db_category, update_db_category,
     get_specialist_label,
     get_specialists_label,
     log_action,
     get_audit_log,
 )
+from .license import init_license_table, init_trial, get_license_status, activate_license
 
 __all__ = [
     "db",
@@ -210,4 +191,6 @@ __all__ = [
     "get_specialists_label",
     "log_action",
     "get_audit_log",
+    # License
+    "init_license_table", "init_trial", "get_license_status", "activate_license",
 ]

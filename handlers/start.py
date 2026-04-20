@@ -1,5 +1,6 @@
 """
 /start — точка входа. Регистрирует пользователя, спрашивает имя, показывает меню.
+Приветственный текст берётся из настроек БД (белый лейбл).
 """
 
 import logging
@@ -23,27 +24,59 @@ from data.salon import SECTION_PHOTOS
 logger = logging.getLogger(__name__)
 router = Router()
 
-WELCOME_TEXT = (
-    "💇‍♀️ <b>Добро пожаловать в Studio ONE!</b>\n\n"
-    "Мы — салон красоты полного цикла на Арбате.\n"
-    "Маникюр, стрижки, окрашивание, барбершоп — всё в одном месте.\n\n"
-    "📍 ул. Арбат 24 (м. Арбатская)\n"
-    "⏰ Пн–Пт 10:00–21:00 · Сб–Вс 10:00–20:00"
-)
 
-ASK_NAME_TEXT = (
-    "💇‍♀️ <b>Добро пожаловать в Studio ONE!</b>\n\n"
-    "📍 ул. Арбат 24 · ⏰ Пн–Пт 10–21, Сб–Вс 10–20\n\n"
-    "👋 <b>Как вас зовут?</b>\n"
-    "Введите ваше имя — мы будем знать как к вам обращаться:"
-)
+async def _build_welcome() -> str:
+    """Полный приветственный текст из настроек БД."""
+    name    = await get_setting("salon_name",        "Studio ONE")
+    desc    = await get_setting("salon_description", "")
+    addr    = await get_setting("salon_address",     "")
+    metro   = await get_setting("salon_metro",       "")
+    h_wkd   = await get_setting("salon_hours_weekdays", "")
+    h_wke   = await get_setting("salon_hours_weekends", "")
+
+    lines = [f"<b>Добро пожаловать в {name}!</b>"]
+    if desc:
+        lines.append(f"\n{desc}")
+    loc_parts = []
+    if addr:
+        loc_parts.append(f"📍 {addr}")
+    if metro:
+        loc_parts.append(metro)
+    if loc_parts:
+        lines.append(" · ".join(loc_parts))
+    sched_parts = [p for p in [h_wkd, h_wke] if p]
+    if sched_parts:
+        lines.append("⏰ " + " · ".join(sched_parts))
+    return "\n".join(lines)
+
+
+async def _build_ask_name() -> str:
+    """Короткий приветственный текст + запрос имени."""
+    name  = await get_setting("salon_name",    "Studio ONE")
+    addr  = await get_setting("salon_address", "")
+    h_wkd = await get_setting("salon_hours_weekdays", "")
+    h_wke = await get_setting("salon_hours_weekends", "")
+
+    header = f"<b>Добро пожаловать в {name}!</b>"
+    info_parts = []
+    if addr:
+        info_parts.append(f"📍 {addr}")
+    sched = " · ".join(p for p in [h_wkd, h_wke] if p)
+    if sched:
+        info_parts.append(f"⏰ {sched}")
+    info_line = "\n" + " · ".join(info_parts) if info_parts else ""
+
+    return (
+        f"{header}{info_line}\n\n"
+        "👋 <b>Как вас зовут?</b>\n"
+        "Введите ваше имя — мы будем знать как к вам обращаться:"
+    )
 
 
 @router.message(CommandStart())
 async def cmd_start(message: Message, bot: Bot, state: FSMContext) -> None:
     user = message.from_user
 
-    # Удаляем /start сообщение
     try:
         await message.delete()
     except Exception:
@@ -68,7 +101,7 @@ async def cmd_start(message: Message, bot: Bot, state: FSMContext) -> None:
     from handlers.master_panel import build_master_panel_text
     master = await get_master_by_telegram_id(user.id)
     if master and master.get("is_active", 1):
-        await _ensure_registered(user)  # тихо регистрируем, без уведомления
+        await _ensure_registered(user)
         text = await build_master_panel_text(master)
         master_photo = master.get("photo_file_id") or SECTION_PHOTOS.get("masters")
         master_lang = await get_user_lang(user.id)
@@ -77,13 +110,11 @@ async def cmd_start(message: Message, bot: Bot, state: FSMContext) -> None:
 
     # ── 3. Клиент ────────────────────────────────────────────
     existing = await get_user(user.id)
-    # Глобальный язык салона (устанавливается админом) как дефолт для новых пользователей
     salon_default_lang = await get_setting("default_lang", DEFAULT_LANG)
     tg_lang = (user.language_code or salon_default_lang)[:2]
     client_lang = tg_lang if tg_lang in ("ru", "en") else salon_default_lang
     from texts import t
 
-    # Если нет в БД или не принял GDPR — показываем экран согласия
     needs_gdpr = (not existing) or (existing and not existing.get("gdpr_accepted"))
     if needs_gdpr:
         if not existing:
@@ -97,37 +128,37 @@ async def cmd_start(message: Message, bot: Bot, state: FSMContext) -> None:
             InlineKeyboardButton(text=t("gdpr_decline_btn", client_lang),
                                  callback_data="gdpr:decline"),
         ]])
+        welcome_text = await _build_welcome()
         try:
             gdpr_msg = await bot.send_photo(
                 chat_id=message.chat.id, photo=main_photo,
-                caption=t("gdpr_title", client_lang), reply_markup=kb_gdpr, parse_mode="HTML",
+                caption=welcome_text, reply_markup=kb_gdpr, parse_mode="HTML",
             )
         except Exception:
             gdpr_msg = await bot.send_message(
-                chat_id=message.chat.id, text=t("gdpr_title", client_lang),
+                chat_id=message.chat.id, text=welcome_text,
                 reply_markup=kb_gdpr, parse_mode="HTML",
             )
         await save_last_msg_id(user.id, gdpr_msg.message_id)
         return
 
-    # GDPR принят — показываем меню
     if not existing.get("full_name"):
-        # Имя ещё не введено
+        ask_text = await _build_ask_name()
         try:
             ask_msg = await bot.send_photo(
                 chat_id=message.chat.id, photo=main_photo,
-                caption=ASK_NAME_TEXT, parse_mode="HTML",
+                caption=ask_text, parse_mode="HTML",
             )
         except Exception:
             ask_msg = await bot.send_message(
-                chat_id=message.chat.id, text=ASK_NAME_TEXT, parse_mode="HTML",
+                chat_id=message.chat.id, text=ask_text, parse_mode="HTML",
             )
         await save_last_msg_id(user.id, ask_msg.message_id)
         await state.set_state(RegistrationStates.entering_name)
         await state.update_data(menu_msg_id=ask_msg.message_id)
     else:
         lang = existing.get("lang", "ru")
-        salon_name = await get_setting("salon_name", "Салон красоты")
+        salon_name = await get_setting("salon_name", "Studio ONE")
         stored_name = existing.get("full_name") or ""
         if stored_name:
             menu_text = f"✨ {t('welcome_back', lang, name=stored_name)}"
@@ -137,7 +168,6 @@ async def cmd_start(message: Message, bot: Bot, state: FSMContext) -> None:
 
 
 async def _ensure_registered(user) -> None:
-    """Тихо регистрирует пользователя если его нет в users (без уведомлений)."""
     from database import get_user as _get_user
     if not await _get_user(user.id):
         await register_user(
@@ -169,7 +199,6 @@ async def msg_entering_name(message: Message, bot: Bot, state: FSMContext) -> No
     menu_msg_id = data.get("menu_msg_id")
     await state.clear()
 
-    # Проверяем - если администратор, показываем панель
     if await is_admin(message.from_user.id):
         from handlers.admin import _build_admin_panel_text
         adm_lang = await get_user_lang(message.from_user.id)
@@ -186,23 +215,17 @@ async def msg_entering_name(message: Message, bot: Bot, state: FSMContext) -> No
             admin_photo = SECTION_PHOTOS.get("admin", WELCOME_PHOTO_URL)
             try:
                 new_msg = await bot.send_photo(
-                    chat_id=message.chat.id,
-                    photo=admin_photo,
-                    caption=admin_text,
-                    reply_markup=adm_kb,
-                    parse_mode="HTML",
+                    chat_id=message.chat.id, photo=admin_photo,
+                    caption=admin_text, reply_markup=adm_kb, parse_mode="HTML",
                 )
             except Exception:
                 new_msg = await bot.send_message(
-                    chat_id=message.chat.id,
-                    text=admin_text,
-                    reply_markup=adm_kb,
-                    parse_mode="HTML",
+                    chat_id=message.chat.id, text=admin_text,
+                    reply_markup=adm_kb, parse_mode="HTML",
                 )
             await save_last_msg_id(message.from_user.id, new_msg.message_id)
         return
 
-    # Если мастер (и не администратор)
     from database import get_master_by_telegram_id
     from keyboards import master_panel_kb
     from handlers.master_panel import build_master_panel_text
@@ -220,7 +243,6 @@ async def msg_entering_name(message: Message, bot: Bot, state: FSMContext) -> No
             await save_last_msg_id(message.from_user.id, menu_msg_id)
         return
 
-    # Обычный клиент
     from database import get_user_lang as _get_lang
     client_lang = await _get_lang(message.from_user.id)
     if client_lang == "en":
@@ -229,34 +251,26 @@ async def msg_entering_name(message: Message, bot: Bot, state: FSMContext) -> No
         greeting_text = f"✨ Приятно познакомиться, <b>{name}</b>!\n\nВыберите раздел 👇"
 
     if menu_msg_id:
-        # Редактируем caption фото-сообщения (фото остаётся, добавляем кнопки)
         await edit_menu(
             bot, message.chat.id, menu_msg_id,
             greeting_text, main_menu_kb(client_lang),
-            photo_url=None,  # фото не меняем
+            photo_url=None,
         )
         await save_last_msg_id(message.from_user.id, menu_msg_id)
     else:
         main_photo = SECTION_PHOTOS.get("main", WELCOME_PHOTO_URL)
         try:
             new_msg = await bot.send_photo(
-                chat_id=message.chat.id,
-                photo=main_photo,
-                caption=greeting_text,
-                reply_markup=main_menu_kb(client_lang),
-                parse_mode="HTML",
+                chat_id=message.chat.id, photo=main_photo,
+                caption=greeting_text, reply_markup=main_menu_kb(client_lang), parse_mode="HTML",
             )
         except Exception:
             new_msg = await bot.send_message(
-                chat_id=message.chat.id,
-                text=greeting_text,
-                reply_markup=main_menu_kb(client_lang),
-                parse_mode="HTML",
+                chat_id=message.chat.id, text=greeting_text,
+                reply_markup=main_menu_kb(client_lang), parse_mode="HTML",
             )
         await save_last_msg_id(message.from_user.id, new_msg.message_id)
 
-
-# ── GDPR callbacks ──────────────────────────────────────────
 
 from aiogram import F as _F
 from aiogram.types import CallbackQuery
@@ -272,7 +286,6 @@ async def cb_gdpr_accept(callback: CallbackQuery, bot: Bot, state: FSMContext) -
     await mark_gdpr_accepted(user.id)
     await update_user_lang(user.id, lang)
 
-    # Уведомление администратору
     if ADMIN_ID and user.id != ADMIN_ID:
         try:
             from database import get_system_lang
@@ -304,10 +317,8 @@ async def cb_gdpr_accept(callback: CallbackQuery, bot: Bot, state: FSMContext) -
                     f"└ Всего пользователей: <b>{count}</b>"
                 )
             await bot.send_message(
-                chat_id=ADMIN_ID,
-                text=notify_text,
-                reply_markup=notify_kb,
-                parse_mode="HTML",
+                chat_id=ADMIN_ID, text=notify_text,
+                reply_markup=notify_kb, parse_mode="HTML",
             )
         except Exception:
             pass
