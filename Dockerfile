@@ -11,6 +11,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
+# Ensure local packages take priority over installed namespace packages
+ENV PYTHONPATH=/app
+
 # Директории для SQLite и логов
 RUN mkdir -p database logs
 
