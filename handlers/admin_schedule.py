@@ -24,7 +24,7 @@ from aiogram.fsm.context import FSMContext
 
 from config import ADMIN_ID
 from services.permissions import is_admin
-from database import (
+from bot_db import (
     get_master_schedule,
     toggle_master_day,
     update_master_all_hours,
@@ -32,7 +32,7 @@ from database import (
     get_master_dayoffs,
     delete_master_dayoff,
 )
-from database import get_all_masters_admin
+from bot_db import get_all_masters_admin
 from states import AdminScheduleStates
 
 logger = logging.getLogger(__name__)
@@ -47,9 +47,9 @@ _MONTHS_GEN = [
 ]
 
 
-# ══════════════════════════════════════════════════════════
+# ════════════════════════════════════════════════════════
 #  Вспомогательные функции
-# ══════════════════════════════════════════════════════════
+# ════════════════════════════════════════════════════════
 
 async def _masters_list_kb() -> InlineKeyboardMarkup:
     """Клавиатура со списком мастеров из БД."""
@@ -109,7 +109,7 @@ def _schedule_kb(master_id: str, schedule: list[dict]) -> InlineKeyboardMarkup:
 
 async def _build_master_text(master_id: str) -> str:
     """Текст экрана расписания мастера."""
-    from database import get_master as _get_master
+    from bot_db import get_master as _get_master
     master_rec = await _get_master(master_id)
     master_name = master_rec["name"] if master_rec else master_id
 
@@ -168,9 +168,9 @@ async def _dayoff_management_kb(master_id: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
-# ══════════════════════════════════════════════════════════
+# ════════════════════════════════════════════════════════
 #  Handlers
-# ══════════════════════════════════════════════════════════
+# ════════════════════════════════════════════════════════
 
 @router.callback_query(F.data == "adm_sch:list")
 async def cb_sch_list(callback: CallbackQuery) -> None:
@@ -192,7 +192,7 @@ async def cb_sch_master(callback: CallbackQuery, state: FSMContext) -> None:
         return await callback.answer()
 
     master_id = callback.data.split(":", 2)[2]
-    from database import get_master as _get_master_rec
+    from bot_db import get_master as _get_master_rec
     if not await _get_master_rec(master_id):
         return await callback.answer("Мастер не найден", show_alert=True)
 

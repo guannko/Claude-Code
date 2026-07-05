@@ -36,9 +36,11 @@ router = Router()
 
 
 class AdminServiceStates(StatesGroup):
-    editing_field = State()
-    adding_service = State()
+    editing_field = State()    # редактируем поле (name/price/duration)
+    adding_service = State()   # добавляем новую услугу (JSON-строка "имя|цена|длит")
 
+
+# ── Вспомогательные ───────────────────────────────────────────────────
 
 def _back_to_list_kb() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[[
@@ -74,6 +76,7 @@ async def _services_list_text() -> str:
 
 
 def _services_mgmt_kb() -> InlineKeyboardMarkup:
+    """Кнопки управления списком услуг."""
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="✏️ Редактировать услугу", callback_data="adm_svc:select_edit")],
         [InlineKeyboardButton(text="➕ Добавить услугу",      callback_data="adm_svc:select_add")],
@@ -83,6 +86,7 @@ def _services_mgmt_kb() -> InlineKeyboardMarkup:
 
 
 async def _cat_select_kb(action: str) -> InlineKeyboardMarkup:
+    """Клавиатура выбора категории для действия (add/edit)."""
     cats = await get_categories()
     buttons = []
     for cat in cats:
@@ -95,6 +99,7 @@ async def _cat_select_kb(action: str) -> InlineKeyboardMarkup:
 
 
 async def _services_select_kb(category: str, action: str) -> InlineKeyboardMarkup:
+    """Выбор конкретной услуги категории для редактирования."""
     import aiosqlite
     from config import DB_PATH
     async with aiosqlite.connect(DB_PATH) as db:
@@ -117,6 +122,7 @@ async def _services_select_kb(category: str, action: str) -> InlineKeyboardMarku
 
 
 def _service_edit_kb(service_id: str) -> InlineKeyboardMarkup:
+    """Кнопки редактирования конкретной услуги."""
     return InlineKeyboardMarkup(inline_keyboard=[
         [
             InlineKeyboardButton(text="✏️ Название",   callback_data=f"adm_svc:field:name:{service_id}"),
@@ -124,7 +130,10 @@ def _service_edit_kb(service_id: str) -> InlineKeyboardMarkup:
         ],
         [
             InlineKeyboardButton(text="⏱ Длительность", callback_data=f"adm_svc:field:duration:{service_id}"),
-            InlineKeyboardButton(text="🔄 Вкл/Выкл",    callback_data=f"adm_svc:toggle:{service_id}"),
+            InlineKeyboardButton(
+                text="🔄 Вкл/Выкл",
+                callback_data=f"adm_svc:toggle:{service_id}",
+            ),
         ],
         [
             InlineKeyboardButton(text="🗑 Удалить", callback_data=f"adm_svc:del:{service_id}"),
@@ -132,6 +141,8 @@ def _service_edit_kb(service_id: str) -> InlineKeyboardMarkup:
         [InlineKeyboardButton(text="◀️ К списку", callback_data="adm_svc:list")],
     ])
 
+
+# ── Главный список ────────────────────────────────────────────────
 
 @router.callback_query(F.data == "adm_svc:list")
 async def cb_adm_svc_list(callback: CallbackQuery, bot: Bot, state: FSMContext) -> None:
@@ -147,6 +158,8 @@ async def cb_adm_svc_list(callback: CallbackQuery, bot: Bot, state: FSMContext) 
     await callback.answer()
 
 
+# ── Выбор категории для добавления ────────────────────────
+
 @router.callback_query(F.data == "adm_svc:select_add")
 async def cb_adm_svc_select_add(callback: CallbackQuery, bot: Bot, state: FSMContext) -> None:
     if not await is_admin(callback.from_user.id):
@@ -159,6 +172,8 @@ async def cb_adm_svc_select_add(callback: CallbackQuery, bot: Bot, state: FSMCon
     )
     await callback.answer()
 
+
+# ── Форма добавления услуги ──────────────────────────────────
 
 @router.callback_query(F.data.startswith("adm_svc:add_form:"))
 async def cb_adm_svc_add_form(callback: CallbackQuery, bot: Bot, state: FSMContext) -> None:
@@ -217,6 +232,7 @@ async def msg_adm_svc_add(message: Message, bot: Bot, state: FSMContext) -> None
     category = data.get("add_category", "")
     menu_msg_id = data.get("menu_msg_id")
 
+    # Генерируем уникальный service_id
     import time
     service_id = f"svc_{int(time.time())}"
 
@@ -244,6 +260,8 @@ async def msg_adm_svc_add(message: Message, bot: Bot, state: FSMContext) -> None
             pass
     await message.answer(f"✅ Услуга <b>{name_str}</b> добавлена!", parse_mode="HTML")
 
+
+# ── Выбор категории для редактирования ────────────────────────
 
 @router.callback_query(F.data == "adm_svc:select_edit")
 async def cb_adm_svc_select_edit(callback: CallbackQuery, bot: Bot, state: FSMContext) -> None:
@@ -299,10 +317,13 @@ async def cb_adm_svc_edit(callback: CallbackQuery, bot: Bot, state: FSMContext) 
     await callback.answer()
 
 
+# ── Редактирование поля ──────────────────────────────────────────────
+
 @router.callback_query(F.data.startswith("adm_svc:field:"))
 async def cb_adm_svc_field(callback: CallbackQuery, bot: Bot, state: FSMContext) -> None:
     if not await is_admin(callback.from_user.id):
         return await callback.answer()
+    # adm_svc:field:{field}:{service_id}
     parts = callback.data.split(":", 3)
     field = parts[2]
     service_id = parts[3]
@@ -347,6 +368,7 @@ async def msg_adm_svc_field(message: Message, bot: Bot, state: FSMContext) -> No
 
     new_value = (message.text or "").strip()
 
+    # Валидация числовых полей
     if field in ("price", "duration"):
         try:
             new_value = int(new_value)
@@ -380,6 +402,8 @@ async def msg_adm_svc_field(message: Message, bot: Bot, state: FSMContext) -> No
             pass
 
 
+# ── Вкл/Выкл услуги ────────────────────────────────────────────────
+
 @router.callback_query(F.data.startswith("adm_svc:toggle:"))
 async def cb_adm_svc_toggle(callback: CallbackQuery, bot: Bot, state: FSMContext) -> None:
     if not await is_admin(callback.from_user.id):
@@ -410,6 +434,8 @@ async def cb_adm_svc_toggle(callback: CallbackQuery, bot: Bot, state: FSMContext
     )
     await callback.answer("✅ Статус изменён")
 
+
+# ── Удаление услуги ────────────────────────────────────────────────
 
 @router.callback_query(F.data.startswith("adm_svc:del:"))
 async def cb_adm_svc_del(callback: CallbackQuery, bot: Bot, state: FSMContext) -> None:
@@ -453,6 +479,8 @@ async def cb_adm_svc_del_confirm(callback: CallbackQuery, bot: Bot, state: FSMCo
     )
     await callback.answer("🗑 Удалено")
 
+
+# ── Управление категориями ──────────────────────────────────────────
 
 @router.callback_query(F.data == "adm_svc:cats")
 async def cb_adm_svc_cats(callback: CallbackQuery, bot: Bot, state: FSMContext) -> None:
@@ -504,6 +532,7 @@ async def cb_adm_svc_cat_toggle(callback: CallbackQuery, bot: Bot, state: FSMCon
     await log_action(callback.from_user.id, "category_toggle", target=cat_key,
                      details=f"active → {new_active}")
 
+    # Обновляем экран категорий
     import aiosqlite
     from config import DB_PATH
     async with aiosqlite.connect(DB_PATH) as db:
