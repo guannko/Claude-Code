@@ -1,6 +1,5 @@
 """
 /start — точка входа. Регистрирует пользователя, спрашивает имя, показывает меню.
-Приветственный текст берётся из настроек БД (белый лейбл).
 """
 
 import logging
@@ -24,53 +23,20 @@ from data.salon import SECTION_PHOTOS
 logger = logging.getLogger(__name__)
 router = Router()
 
+WELCOME_TEXT = (
+    "💇‍♀️ <b>Добро пожаловать в Studio ONE!</b>\n\n"
+    "Мы — салон красоты полного цикла на Арбате.\n"
+    "Маникюр, стрижки, окрашивание, барбершоп — всё в одном месте.\n\n"
+    "📍 ул. Арбат 24 (м. Арбатская)\n"
+    "⏰ Пн–Пт 10:00–21:00 · Сб–Вс 10:00–20:00"
+)
 
-async def _build_welcome() -> str:
-    """Полный приветственный текст из настроек БД."""
-    name    = await get_setting("salon_name",        "Studio ONE")
-    desc    = await get_setting("salon_description", "")
-    addr    = await get_setting("salon_address",     "")
-    metro   = await get_setting("salon_metro",       "")
-    h_wkd   = await get_setting("salon_hours_weekdays", "")
-    h_wke   = await get_setting("salon_hours_weekends", "")
-
-    lines = [f"<b>Добро пожаловать в {name}!</b>"]
-    if desc:
-        lines.append(f"\n{desc}")
-    loc_parts = []
-    if addr:
-        loc_parts.append(f"📍 {addr}")
-    if metro:
-        loc_parts.append(metro)
-    if loc_parts:
-        lines.append(" · ".join(loc_parts))
-    sched_parts = [p for p in [h_wkd, h_wke] if p]
-    if sched_parts:
-        lines.append("⏰ " + " · ".join(sched_parts))
-    return "\n".join(lines)
-
-
-async def _build_ask_name() -> str:
-    """Короткий приветственный текст + запрос имени."""
-    name  = await get_setting("salon_name",    "Studio ONE")
-    addr  = await get_setting("salon_address", "")
-    h_wkd = await get_setting("salon_hours_weekdays", "")
-    h_wke = await get_setting("salon_hours_weekends", "")
-
-    header = f"<b>Добро пожаловать в {name}!</b>"
-    info_parts = []
-    if addr:
-        info_parts.append(f"📍 {addr}")
-    sched = " · ".join(p for p in [h_wkd, h_wke] if p)
-    if sched:
-        info_parts.append(f"⏰ {sched}")
-    info_line = "\n" + " · ".join(info_parts) if info_parts else ""
-
-    return (
-        f"{header}{info_line}\n\n"
-        "👋 <b>Как вас зовут?</b>\n"
-        "Введите ваше имя — мы будем знать как к вам обращаться:"
-    )
+ASK_NAME_TEXT = (
+    "💇‍♀️ <b>Добро пожаловать в Studio ONE!</b>\n\n"
+    "📍 ул. Арбат 24 · ⏰ Пн–Пт 10–21, Сб–Вс 10–20\n\n"
+    "👋 <b>Как вас зовут?</b>\n"
+    "Введите ваше имя — мы будем знать как к вам обращаться:"
+)
 
 
 @router.message(CommandStart())
@@ -85,7 +51,6 @@ async def cmd_start(message: Message, bot: Bot, state: FSMContext) -> None:
     await state.clear()
     main_photo = SECTION_PHOTOS.get("main", WELCOME_PHOTO_URL)
 
-    # ── 1. Администратор ─────────────────────────────────────
     if await is_admin(user.id):
         await _ensure_registered(user)
         from handlers.admin import _build_admin_panel_text
@@ -95,7 +60,6 @@ async def cmd_start(message: Message, bot: Bot, state: FSMContext) -> None:
         await send_menu(message, bot, text, admin_panel_kb(is_owner(user.id), admin_lang), photo_url=admin_photo)
         return
 
-    # ── 2. Мастер ────────────────────────────────────────────
     from bot_db import get_master_by_telegram_id
     from keyboards import master_panel_kb
     from handlers.master_panel import build_master_panel_text
@@ -108,7 +72,6 @@ async def cmd_start(message: Message, bot: Bot, state: FSMContext) -> None:
         await send_menu(message, bot, text, master_panel_kb(master_lang), photo_url=master_photo)
         return
 
-    # ── 3. Клиент ────────────────────────────────────────────
     existing = await get_user(user.id)
     salon_default_lang = await get_setting("default_lang", DEFAULT_LANG)
     tg_lang = (user.language_code or salon_default_lang)[:2]
@@ -128,37 +91,35 @@ async def cmd_start(message: Message, bot: Bot, state: FSMContext) -> None:
             InlineKeyboardButton(text=t("gdpr_decline_btn", client_lang),
                                  callback_data="gdpr:decline"),
         ]])
-        welcome_text = await _build_welcome()
         try:
             gdpr_msg = await bot.send_photo(
                 chat_id=message.chat.id, photo=main_photo,
-                caption=welcome_text, reply_markup=kb_gdpr, parse_mode="HTML",
+                caption=t("gdpr_title", client_lang), reply_markup=kb_gdpr, parse_mode="HTML",
             )
         except Exception:
             gdpr_msg = await bot.send_message(
-                chat_id=message.chat.id, text=welcome_text,
+                chat_id=message.chat.id, text=t("gdpr_title", client_lang),
                 reply_markup=kb_gdpr, parse_mode="HTML",
             )
         await save_last_msg_id(user.id, gdpr_msg.message_id)
         return
 
     if not existing.get("full_name"):
-        ask_text = await _build_ask_name()
         try:
             ask_msg = await bot.send_photo(
                 chat_id=message.chat.id, photo=main_photo,
-                caption=ask_text, parse_mode="HTML",
+                caption=ASK_NAME_TEXT, parse_mode="HTML",
             )
         except Exception:
             ask_msg = await bot.send_message(
-                chat_id=message.chat.id, text=ask_text, parse_mode="HTML",
+                chat_id=message.chat.id, text=ASK_NAME_TEXT, parse_mode="HTML",
             )
         await save_last_msg_id(user.id, ask_msg.message_id)
         await state.set_state(RegistrationStates.entering_name)
         await state.update_data(menu_msg_id=ask_msg.message_id)
     else:
         lang = existing.get("lang", "ru")
-        salon_name = await get_setting("salon_name", "Studio ONE")
+        salon_name = await get_setting("salon_name", "Салон красоты")
         stored_name = existing.get("full_name") or ""
         if stored_name:
             menu_text = f"✨ {t('welcome_back', lang, name=stored_name)}"
@@ -333,15 +294,13 @@ async def cb_gdpr_accept(callback: CallbackQuery, bot: Bot, state: FSMContext) -
     )
     try:
         await bot.edit_message_caption(
-            chat_id=callback.message.chat.id,
-            message_id=callback.message.message_id,
+            chat_id=callback.message.chat.id, message_id=callback.message.message_id,
             caption=ask_text, reply_markup=None, parse_mode="HTML",
         )
     except Exception:
         try:
             await bot.edit_message_text(
-                chat_id=callback.message.chat.id,
-                message_id=callback.message.message_id,
+                chat_id=callback.message.chat.id, message_id=callback.message.message_id,
                 text=ask_text, reply_markup=None, parse_mode="HTML",
             )
         except Exception:
