@@ -58,7 +58,7 @@ def _category_select_kb(back_cb: str = "gallery:admin") -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-# ── Клиент: просмотр галереи ────────────────────────────────────
+# ── Клиент: просмотр галереи ────────────────────────────────
 
 @router.callback_query(F.data == "gallery:browse")
 async def cb_gallery_browse(callback: CallbackQuery, bot: Bot) -> None:
@@ -90,7 +90,6 @@ async def cb_gallery_category(callback: CallbackQuery, bot: Bot) -> None:
         await callback.answer()
         return
 
-    # Показываем первое фото, остальные отправляем как отдельные
     first = photos[0]
     kb = InlineKeyboardMarkup(inline_keyboard=[[
         InlineKeyboardButton(text="◀️ Назад", callback_data="gallery:browse"),
@@ -101,7 +100,6 @@ async def cb_gallery_category(callback: CallbackQuery, bot: Bot) -> None:
         kb, photo_url=first["file_id"],
     )
 
-    # Дополнительные фото отправляем отдельными сообщениями
     for p in photos[1:]:
         caption = p.get("caption") or ""
         try:
@@ -117,7 +115,7 @@ async def cb_gallery_category(callback: CallbackQuery, bot: Bot) -> None:
     await callback.answer()
 
 
-# ── Мастер: загрузка своей работы ──────────────────────────────
+# ── Мастер: загрузка своей работы ──────────────────────
 
 @router.callback_query(F.data == "gallery:master_upload")
 async def cb_gallery_master_upload(callback: CallbackQuery, state: FSMContext, bot: Bot) -> None:
@@ -138,7 +136,7 @@ async def cb_gallery_master_upload(callback: CallbackQuery, state: FSMContext, b
     await callback.answer()
 
 
-# ── Администратор: управление галереей ────────────────────────
+# ── Администратор: управление галереей ────────────────────
 
 @router.callback_query(F.data == "gallery:admin")
 async def cb_gallery_admin(callback: CallbackQuery, bot: Bot) -> None:
@@ -257,7 +255,7 @@ async def _save_gallery_photo(message: Message, state: FSMContext, caption: str)
         await message.answer("⚠️ Не удалось сохранить фото.")
 
 
-# ── Администратор: удаление фото ─────────────────────────────
+# ── Администратор: удаление фото ─────────────────────
 
 @router.callback_query(F.data == "gallery:admin_delete_list")
 async def cb_gallery_delete_list(callback: CallbackQuery, bot: Bot) -> None:
@@ -274,7 +272,7 @@ async def cb_gallery_delete_list(callback: CallbackQuery, bot: Bot) -> None:
     for p in photos[:20]:
         cat = _CATEGORIES.get(p["category"], p["category"])
         label = f"🗑 {cat}: {(p.get('caption') or '—')[:20]} [#{p['id']}]"
-        rows.append([InlineKeyboardButton(text=label, callback_data=f"gallery:del:{p['id']}"]])
+        rows.append([InlineKeyboardButton(text=label, callback_data=f"gallery:del:{p['id']}")])  
     rows.append([InlineKeyboardButton(text="◀️ Назад", callback_data="gallery:admin")])
 
     await edit_menu(
@@ -295,5 +293,4 @@ async def cb_gallery_delete(callback: CallbackQuery, bot: Bot) -> None:
     photo_id = int(callback.data.split(":")[2])
     await delete_gallery_photo(photo_id)
     await callback.answer("✅ Фото удалено.")
-    # Обновляем список
     await cb_gallery_delete_list(callback, bot)
