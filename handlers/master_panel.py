@@ -11,7 +11,7 @@ from aiogram import Router, Bot, F
 from aiogram.types import CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.fsm.context import FSMContext
 
-from database import get_master_by_telegram_id, get_upcoming_bookings_for_master
+from bot_db import get_master_by_telegram_id, get_upcoming_bookings_for_master
 from services.permissions import is_admin
 from services.sender import edit_menu
 from data.salon import SECTION_PHOTOS
@@ -24,12 +24,9 @@ _STATUS_ICONS = {"new": "🟡", "confirmed": "✅", "cancelled": "❌", "rejecte
 
 
 async def build_master_panel_text(master: dict) -> str:
-    """Текст главного экрана мастера."""
     master_id = master["master_id"]
     bookings = await get_upcoming_bookings_for_master(master_id, limit=3)
-
     lines = [f"👩‍🎨 <b>Панель мастера — {master['name']}</b>\n"]
-
     if bookings:
         lines.append("📋 <b>Ближайшие записи:</b>")
         for b in bookings:
@@ -40,9 +37,7 @@ async def build_master_panel_text(master: dict) -> str:
             )
     else:
         lines.append("📋 Записей пока нет.")
-
     return "\n".join(lines)
-
 
 
 @router.callback_query(F.data == "mst_panel:schedule")
@@ -71,7 +66,7 @@ async def cb_mst_panel_home(callback: CallbackQuery, bot: Bot, state: FSMContext
         await callback.answer("⛔ Нет доступа.", show_alert=True)
         return
     await state.clear()
-    from database import get_user_lang
+    from bot_db import get_user_lang
     lang = await get_user_lang(callback.from_user.id)
     text = await build_master_panel_text(master)
     await edit_menu(
