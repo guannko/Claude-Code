@@ -9,7 +9,7 @@ from aiogram.filters import CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.types import Message
 from config import DEFAULT_LANG, ADMIN_ID, WELCOME_PHOTO_URL
-from database import (
+from bot_db import (
     get_user, register_user, get_user_lang, get_users_count,
     save_last_msg_id, update_user_name, get_last_msg_id,
     mark_gdpr_accepted, delete_user_data, get_setting,
@@ -96,7 +96,7 @@ async def cmd_start(message: Message, bot: Bot, state: FSMContext) -> None:
         return
 
     # ── 2. Мастер ────────────────────────────────────────────
-    from database import get_master_by_telegram_id
+    from bot_db import get_master_by_telegram_id
     from keyboards import master_panel_kb
     from handlers.master_panel import build_master_panel_text
     master = await get_master_by_telegram_id(user.id)
@@ -168,7 +168,7 @@ async def cmd_start(message: Message, bot: Bot, state: FSMContext) -> None:
 
 
 async def _ensure_registered(user) -> None:
-    from database import get_user as _get_user
+    from bot_db import get_user as _get_user
     if not await _get_user(user.id):
         await register_user(
             user_id=user.id,
@@ -226,7 +226,7 @@ async def msg_entering_name(message: Message, bot: Bot, state: FSMContext) -> No
             await save_last_msg_id(message.from_user.id, new_msg.message_id)
         return
 
-    from database import get_master_by_telegram_id
+    from bot_db import get_master_by_telegram_id
     from keyboards import master_panel_kb
     from handlers.master_panel import build_master_panel_text
     master_rec = await get_master_by_telegram_id(message.from_user.id)
@@ -243,7 +243,7 @@ async def msg_entering_name(message: Message, bot: Bot, state: FSMContext) -> No
             await save_last_msg_id(message.from_user.id, menu_msg_id)
         return
 
-    from database import get_user_lang as _get_lang
+    from bot_db import get_user_lang as _get_lang
     client_lang = await _get_lang(message.from_user.id)
     if client_lang == "en":
         greeting_text = f"✨ Nice to meet you, <b>{name}</b>!\n\nChoose a section 👇"
@@ -279,7 +279,7 @@ from aiogram.types import CallbackQuery
 @router.callback_query(_F.data.startswith("gdpr:accept:"))
 async def cb_gdpr_accept(callback: CallbackQuery, bot: Bot, state: FSMContext) -> None:
     from texts import t
-    from database import update_user_lang
+    from bot_db import update_user_lang
     lang = callback.data.split(":")[2]
     user = callback.from_user
 
@@ -288,7 +288,7 @@ async def cb_gdpr_accept(callback: CallbackQuery, bot: Bot, state: FSMContext) -
 
     if ADMIN_ID and user.id != ADMIN_ID:
         try:
-            from database import get_system_lang
+            from bot_db import get_system_lang
             sys_lang = await get_system_lang()
             count = await get_users_count()
             username_str = f"@{user.username}" if user.username else "—"
@@ -352,7 +352,7 @@ async def cb_gdpr_accept(callback: CallbackQuery, bot: Bot, state: FSMContext) -
 @router.callback_query(_F.data == "gdpr:decline")
 async def cb_gdpr_decline(callback: CallbackQuery) -> None:
     from texts import t
-    from database import get_user_lang
+    from bot_db import get_user_lang
     lang = await get_user_lang(callback.from_user.id)
     text = t("gdpr_declined", lang)
     try:
