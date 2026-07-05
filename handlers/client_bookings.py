@@ -29,6 +29,8 @@ def _status_label(status: str) -> str:
     }.get(status, status)
 
 
+# ── Детали записи + кнопки действий ────────────────────────────────
+
 @router.callback_query(F.data.startswith("mybooking:edit:"))
 async def cb_mybooking_edit(callback: CallbackQuery, bot: Bot) -> None:
     booking_id = int(callback.data.split(":")[2])
@@ -62,7 +64,7 @@ async def cb_mybooking_edit(callback: CallbackQuery, bot: Bot) -> None:
             ),
         ],
         [
-            InlineKeyboardButton(text="◄️ Мои записи", callback_data="menu:my_bookings"),
+            InlineKeyboardButton(text="◀️ Мои записи", callback_data="menu:my_bookings"),
         ],
     ])
     await edit_menu(
@@ -71,6 +73,8 @@ async def cb_mybooking_edit(callback: CallbackQuery, bot: Bot) -> None:
     )
     await callback.answer()
 
+
+# ── Отмена записи клиентом ──────────────────────────────────────────
 
 @router.callback_query(F.data.startswith("mybooking:cancel:"))
 async def cb_mybooking_cancel(callback: CallbackQuery, bot: Bot) -> None:
@@ -87,6 +91,7 @@ async def cb_mybooking_cancel(callback: CallbackQuery, bot: Bot) -> None:
 
     await update_booking_status(booking_id, "cancelled")
 
+    # Уведомляем администратора — на системном языке
     if ADMIN_ID:
         try:
             sys_lang = await get_system_lang()
@@ -116,8 +121,7 @@ async def cb_mybooking_cancel(callback: CallbackQuery, bot: Bot) -> None:
                     f"📅 {booking['date']} в {booking['time_start']}\n"
                     f"👤 Клиент: {booking['user_name']} ({booking['username']})"
                 )
-            from bot_db import Bot as _Bot
-            await callback.bot.send_message(
+            await bot.send_message(
                 chat_id=ADMIN_ID,
                 text=cancel_text,
                 reply_markup=adm_kb,
@@ -145,6 +149,8 @@ async def cb_mybooking_cancel(callback: CallbackQuery, bot: Bot) -> None:
     await callback.answer("❌ Запись отменена")
 
 
+# ── Изменить время: отменяем старую → запускаем новую запись ─
+
 @router.callback_query(F.data.startswith("mybooking:rebook:"))
 async def cb_mybooking_rebook(callback: CallbackQuery, bot: Bot, state: FSMContext) -> None:
     from states import BookingStates
@@ -158,8 +164,10 @@ async def cb_mybooking_rebook(callback: CallbackQuery, bot: Bot, state: FSMConte
         await callback.answer("Запись не найдена.", show_alert=True)
         return
 
+    # Отменяем старую запись
     await update_booking_status(booking_id, "cancelled")
 
+    # Уведомляем администратора — на системном языке
     if ADMIN_ID:
         try:
             sys_lang = await get_system_lang()
@@ -191,7 +199,7 @@ async def cb_mybooking_rebook(callback: CallbackQuery, bot: Bot, state: FSMConte
                     f"👤 Клиент: {booking['user_name']} ({booking['username']})\n\n"
                     "Клиент создаёт новую запись вместо этой."
                 )
-            await callback.bot.send_message(
+            await bot.send_message(
                 chat_id=ADMIN_ID,
                 text=rebook_text,
                 reply_markup=adm_kb2,
@@ -200,6 +208,7 @@ async def cb_mybooking_rebook(callback: CallbackQuery, bot: Bot, state: FSMConte
         except Exception as e:
             logger.warning("Не удалось уведомить администратора: %s", e)
 
+    # Запускаем новый флоу записи
     lang = await get_user_lang(callback.from_user.id)
     await state.clear()
     await state.set_state(BookingStates.choosing_category)
@@ -207,14 +216,17 @@ async def cb_mybooking_rebook(callback: CallbackQuery, bot: Bot, state: FSMConte
     await edit_menu(
         bot, callback.message.chat.id, callback.message.message_id,
         t("booking_choose_category", lang),
-        await categories_kb(),
+        categories_kb(),
         photo_url=SECTION_PHOTOS.get("booking"),
     )
     await callback.answer("🔄 Создаём новую запись")
 
 
+# ── Уведомление принято администратором ───────────────────────────────
+
 @router.callback_query(F.data.startswith("adm_notify:dismiss:"))
 async def cb_adm_notify_dismiss(callback: CallbackQuery) -> None:
+    """Удаляет уведомление целиком после подтверждения."""
     from services.permissions import is_admin
     if not await is_admin(callback.from_user.id):
         await callback.answer("⛔ Нет доступа", show_alert=True)
@@ -222,6 +234,7 @@ async def cb_adm_notify_dismiss(callback: CallbackQuery) -> None:
     try:
         await callback.message.delete()
     except Exception:
+        # Если удалить не получилось — хотя бы убираем кнопки
         try:
             await callback.message.edit_reply_markup(reply_markup=None)
         except Exception:

@@ -31,6 +31,8 @@ _MASTER_PHOTO = SECTION_PHOTOS.get("masters")
 _STATUS_ICONS = {"new": "🟡", "confirmed": "✅", "cancelled": "❌", "rejected": "❌"}
 
 
+# ── Список клиентов мастера ──────────────────────────────────────────
+
 @router.callback_query(F.data == "mst_clients:list")
 async def cb_mst_clients_list(callback: CallbackQuery, bot: Bot) -> None:
     master = await get_master_by_telegram_id(callback.from_user.id)
@@ -40,6 +42,7 @@ async def cb_mst_clients_list(callback: CallbackQuery, bot: Bot) -> None:
 
     bookings = await get_upcoming_bookings_for_master(master["master_id"], limit=50)
 
+    # Уникальные клиенты (последние 50 записей)
     seen = {}
     for b in bookings:
         uid = b.get("user_id")
@@ -72,6 +75,8 @@ async def cb_mst_clients_list(callback: CallbackQuery, bot: Bot) -> None:
     )
     await callback.answer()
 
+
+# ── Карточка клиента ───────────────────────────────────────────────
 
 @router.callback_query(F.data.startswith("mst_clients:client:"))
 async def cb_mst_client_card(callback: CallbackQuery, bot: Bot) -> None:
@@ -125,6 +130,8 @@ async def cb_mst_client_card(callback: CallbackQuery, bot: Bot) -> None:
     await callback.answer()
 
 
+# ── Заметка о клиенте ───────────────────────────────────────────────
+
 @router.callback_query(F.data.startswith("mst_clients:note:"))
 async def cb_mst_client_note(callback: CallbackQuery, state: FSMContext, bot: Bot) -> None:
     master = await get_master_by_telegram_id(callback.from_user.id)
@@ -168,8 +175,11 @@ async def msg_master_note(message: Message, state: FSMContext) -> None:
     await message.answer("✅ Заметка сохранена!")
 
 
+# ── Посещаемость в списке записей ────────────────────────────────
+
 @router.callback_query(F.data.startswith("mst_panel:bookings"))
 async def cb_mst_bookings_with_attendance(callback: CallbackQuery, bot: Bot) -> None:
+    """Переопределяем список записей мастера с кнопками посещаемости."""
     master = await get_master_by_telegram_id(callback.from_user.id)
     if not master:
         await callback.answer("⛔ Вы не привязаны как мастер.", show_alert=True)
@@ -194,6 +204,7 @@ async def cb_mst_bookings_with_attendance(callback: CallbackQuery, bot: Bot) -> 
                 f"   👤 {b['user_name']} — {b['service']}\n"
                 f"   📞 {b.get('phone','—')}"
             )
+            # Кнопки отметки только для подтверждённых
             if b.get("status") == "confirmed":
                 bid = b["id"]
                 rows.append([
@@ -237,4 +248,5 @@ async def cb_mst_attend(callback: CallbackQuery, bot: Bot) -> None:
     await update_booking_attended(booking_id, attended)
     mark = "✓ Пришёл" if attended == 1 else "✗ Не пришёл"
     await callback.answer(f"Отмечено: {mark}", show_alert=False)
+    # Обновляем список
     await cb_mst_bookings_with_attendance(callback, bot)
