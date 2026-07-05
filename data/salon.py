@@ -3,7 +3,7 @@
 Все константы — меняй здесь при смене клиента.
 """
 
-# ── Фото для каждого раздела ──────────────────────────────
+# ── Фото для каждого раздела ─────────────────────────────────
 _SECTION_PHOTOS_DEFAULT = {
     "main":      "https://images.unsplash.com/photo-1560066984-138dadb4c035?w=800",
     "services":  "https://images.unsplash.com/photo-1522337360788-8b13dee7a37e?w=800",
@@ -24,7 +24,7 @@ class _SectionPhotosProxy:
 
     def get(self, key: str, default=None):
         try:
-            from database.db import _settings_cache
+            from bot_db.db import _settings_cache
             cached = _settings_cache.get(f"photo_{key}", "")
             if cached:
                 return cached
@@ -66,7 +66,7 @@ SALON_HOURS = {
     "weekends": "Сб–Вс: 10:00 – 20:00",
 }
 
-# ── Услуги ────────────────────────────────────────────────────
+# ── Услуги ──────────────────────────────────────────────────────
 # duration — в минутах, price — в рублях
 
 SERVICES = {
@@ -103,8 +103,7 @@ SERVICES = {
     },
 }
 
-# ── Мастера ───────────────────────────────────────────────────
-
+# ── Мастера ──────────────────────────────────────────────────
 MASTERS = {
     "manicure": [
         {"id": "m_anna",  "name": "Анна К.",   "exp": 7, "spec": "наращивание, дизайн"},
