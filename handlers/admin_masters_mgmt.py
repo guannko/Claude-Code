@@ -8,7 +8,7 @@ callback_data схема:
   adm:master_edit_desc:{master_id} — редактировать описание
   adm:master_edit_tg:{master_id}   — привязать TG аккаунт
   adm:master_toggle:{master_id}    — активировать/деактивировать
-  adm:master_add                   — начать добавления нового мастера
+  adm:master_add                   — начать добавление нового мастера
   adm:master_photo:{master_id}     — уже есть в admin_masters.py, переиспользуем
 """
 
@@ -41,8 +41,11 @@ _CAT_NAMES = {"manicure": "Маникюр", "hair": "Стрижки", "barber": 
 _CAT_LIST  = ["manicure", "hair", "barber"]
 
 
+# ── Helpers ────────────────────────────────────────────────────────
+
 def _masters_list_kb(masters: list) -> InlineKeyboardMarkup:
     rows = []
+    # Group by category
     seen_cats = []
     for m in masters:
         cat = m.get("category", "")
@@ -60,7 +63,7 @@ def _masters_list_kb(masters: list) -> InlineKeyboardMarkup:
             )])
     rows.append([
         InlineKeyboardButton(text="➕ Добавить мастера", callback_data="adm:master_add"),
-        InlineKeyboardButton(text="◄️ Назад",            callback_data="adm:panel"),
+        InlineKeyboardButton(text="◀️ Назад",            callback_data="adm:panel"),
     ])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
@@ -85,7 +88,7 @@ def _master_card_kb(master_id: str, has_tg: bool = False) -> InlineKeyboardMarku
             InlineKeyboardButton(text="📅 Расписание",  callback_data=f"adm_sch:master:{master_id}"),
             InlineKeyboardButton(text="🗑 Деактивировать", callback_data=f"adm:master_toggle:{master_id}"),
         ],
-        [InlineKeyboardButton(text="◄️ К списку",       callback_data="adm:masters")],
+        [InlineKeyboardButton(text="◀️ К списку",       callback_data="adm:masters")],
     ]
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
@@ -122,6 +125,8 @@ async def _build_masters_text(masters: list) -> str:
     return "\n".join(lines).rstrip()
 
 
+# ── adm:masters — список мастеров ──────────────────────────
+
 @router.callback_query(F.data == "adm:masters")
 async def cb_adm_masters(callback: CallbackQuery, bot: Bot) -> None:
     if not await is_admin(callback.from_user.id):
@@ -136,6 +141,8 @@ async def cb_adm_masters(callback: CallbackQuery, bot: Bot) -> None:
     )
     await callback.answer()
 
+
+# ── adm:master:{id} — карточка мастера ─────────────────────
 
 @router.callback_query(F.data.startswith("adm:master:"))
 async def cb_adm_master_card(callback: CallbackQuery, bot: Bot) -> None:
@@ -157,6 +164,8 @@ async def cb_adm_master_card(callback: CallbackQuery, bot: Bot) -> None:
     await callback.answer()
 
 
+# ── adm:master_unlink_tg:{id} — отвязать TG ──────────────────
+
 @router.callback_query(F.data.startswith("adm:master_unlink_tg:"))
 async def cb_adm_master_unlink_tg(callback: CallbackQuery, bot: Bot) -> None:
     if not await is_admin(callback.from_user.id):
@@ -176,6 +185,8 @@ async def cb_adm_master_unlink_tg(callback: CallbackQuery, bot: Bot) -> None:
         )
 
 
+# ── adm:master_toggle:{id} — вкл/выкл мастера ─────────────────
+
 @router.callback_query(F.data.startswith("adm:master_toggle:"))
 async def cb_adm_master_toggle(callback: CallbackQuery, bot: Bot) -> None:
     if not await is_admin(callback.from_user.id):
@@ -185,6 +196,7 @@ async def cb_adm_master_toggle(callback: CallbackQuery, bot: Bot) -> None:
     new_val = await toggle_master_active(master_id)
     status = "активирован ✅" if new_val else "деактивирован ⛔"
     await callback.answer(f"Мастер {status}", show_alert=True)
+    # Refresh card
     m = await get_master(master_id)
     if m:
         photo = m.get("photo_file_id") or SECTION_PHOTOS.get("masters")
@@ -196,6 +208,8 @@ async def cb_adm_master_toggle(callback: CallbackQuery, bot: Bot) -> None:
         )
 
 
+# ── adm:master_edit_name:{id} ──────────────────────────────────────
+
 @router.callback_query(F.data.startswith("adm:master_edit_name:"))
 async def cb_adm_edit_name(callback: CallbackQuery, state: FSMContext) -> None:
     if not await is_admin(callback.from_user.id):
@@ -206,7 +220,7 @@ async def cb_adm_edit_name(callback: CallbackQuery, state: FSMContext) -> None:
     await state.set_state(AdminStates.master_editing_name)
     await state.update_data(editing_master_id=master_id, edit_msg_id=callback.message.message_id)
     kb = InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text="◄️ Отмена", callback_data=f"adm:master:{master_id}"),
+        InlineKeyboardButton(text="◀️ Отмена", callback_data=f"adm:master:{master_id}"),
     ]])
     try:
         await callback.message.edit_caption(
@@ -248,6 +262,8 @@ async def msg_master_edit_name(message: Message, bot: Bot, state: FSMContext) ->
         )
 
 
+# ── adm:master_edit_desc:{id} ──────────────────────────────────────
+
 @router.callback_query(F.data.startswith("adm:master_edit_desc:"))
 async def cb_adm_edit_desc(callback: CallbackQuery, state: FSMContext) -> None:
     if not await is_admin(callback.from_user.id):
@@ -258,7 +274,7 @@ async def cb_adm_edit_desc(callback: CallbackQuery, state: FSMContext) -> None:
     await state.set_state(AdminStates.master_editing_description)
     await state.update_data(editing_master_id=master_id, edit_msg_id=callback.message.message_id)
     kb = InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text="◄️ Отмена", callback_data=f"adm:master:{master_id}"),
+        InlineKeyboardButton(text="◀️ Отмена", callback_data=f"adm:master:{master_id}"),
     ]])
     current = (m or {}).get("description") or "не задано"
     try:
@@ -303,6 +319,8 @@ async def msg_master_edit_desc(message: Message, bot: Bot, state: FSMContext) ->
         )
 
 
+# ── adm:master_edit_tg:{id} — привязать TG аккаунт ──────────────
+
 @router.callback_query(F.data.startswith("adm:master_edit_tg:"))
 async def cb_adm_edit_tg(callback: CallbackQuery, state: FSMContext) -> None:
     if not await is_admin(callback.from_user.id):
@@ -313,7 +331,7 @@ async def cb_adm_edit_tg(callback: CallbackQuery, state: FSMContext) -> None:
     await state.set_state(AdminStates.master_editing_tg)
     await state.update_data(editing_master_id=master_id, edit_msg_id=callback.message.message_id)
     kb = InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text="◄️ Отмена", callback_data=f"adm:master:{master_id}"),
+        InlineKeyboardButton(text="◀️ Отмена", callback_data=f"adm:master:{master_id}"),
     ]])
     try:
         await callback.message.edit_caption(
@@ -365,13 +383,13 @@ async def msg_master_edit_tg(message: Message, bot: Bot, state: FSMContext) -> N
             else:
                 error_text = (
                     f"❌ Пользователь {text} не найден в базе бота.\n"
-                    "Попросите мастера сначала запустить бота (/start), "
+                    "Попросите мастера сначала запустить бот (/start), "
                     "затем попробуйте снова."
                 )
 
     if error_text:
         kb = InlineKeyboardMarkup(inline_keyboard=[[
-            InlineKeyboardButton(text="◄️ Отмена", callback_data=f"adm:master:{master_id}"),
+            InlineKeyboardButton(text="◀️ Отмена", callback_data=f"adm:master:{master_id}"),
         ]])
         try:
             await bot.edit_message_caption(
@@ -403,6 +421,8 @@ async def msg_master_edit_tg(message: Message, bot: Bot, state: FSMContext) -> N
         )
 
 
+# ── adm:master_add — добавить нового мастера ─────────────────────
+
 @router.callback_query(F.data == "adm:master_add")
 async def cb_adm_master_add(callback: CallbackQuery, state: FSMContext) -> None:
     if not await is_admin(callback.from_user.id):
@@ -411,7 +431,7 @@ async def cb_adm_master_add(callback: CallbackQuery, state: FSMContext) -> None:
     await state.set_state(AdminStates.master_adding_name)
     await state.update_data(edit_msg_id=callback.message.message_id)
     kb = InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text="◄️ Отмена", callback_data="adm:masters"),
+        InlineKeyboardButton(text="◀️ Отмена", callback_data="adm:masters"),
     ]])
     try:
         await callback.message.edit_caption(
@@ -445,7 +465,7 @@ async def msg_master_add_name(message: Message, bot: Bot, state: FSMContext) -> 
         [InlineKeyboardButton(text="💅 Маникюр",              callback_data="adm:master_add_cat:manicure")],
         [InlineKeyboardButton(text="✂️ Стрижка и окрашивание", callback_data="adm:master_add_cat:hair")],
         [InlineKeyboardButton(text="🪒 Барбершоп",             callback_data="adm:master_add_cat:barber")],
-        [InlineKeyboardButton(text="◄️ Отмена",                callback_data="adm:masters")],
+        [InlineKeyboardButton(text="◀️ Отмена",                callback_data="adm:masters")],
     ])
     try:
         await bot.edit_message_caption(
@@ -475,6 +495,7 @@ async def cb_adm_master_add_cat(callback: CallbackQuery, bot: Bot, state: FSMCon
     promote_user_id = data.get("promote_user_id")
     await state.clear()
 
+    # Generate master_id from name
     import re as _re
     import time
     safe = _re.sub(r"[^a-z0-9]", "", name.lower().replace(" ", "_"))
@@ -482,8 +503,10 @@ async def cb_adm_master_add_cat(callback: CallbackQuery, bot: Bot, state: FSMCon
 
     await add_master_to_db(master_id, name, category)
 
+    # Если назначение из профиля пользователя — привязываем TG
     if promote_user_id:
         await set_master_telegram_id(master_id, promote_user_id)
+        # Уведомляем нового мастера
         try:
             await bot.send_message(
                 chat_id=promote_user_id,
@@ -510,6 +533,8 @@ async def cb_adm_master_add_cat(callback: CallbackQuery, bot: Bot, state: FSMCon
     await callback.answer()
 
 
+# ── adm:promote:{user_id} — назначить пользователя мастером ──────────
+
 @router.callback_query(F.data.startswith("adm:promote:"))
 async def cb_adm_promote_user(callback: CallbackQuery, bot: Bot, state: FSMContext) -> None:
     if not await is_admin(callback.from_user.id):
@@ -535,7 +560,7 @@ async def cb_adm_promote_user(callback: CallbackQuery, bot: Bot, state: FSMConte
         [InlineKeyboardButton(text="💅 Маникюр",              callback_data="adm:master_add_cat:manicure")],
         [InlineKeyboardButton(text="✂️ Стрижка и окрашивание", callback_data="adm:master_add_cat:hair")],
         [InlineKeyboardButton(text="🪒 Барбершоп",             callback_data="adm:master_add_cat:barber")],
-        [InlineKeyboardButton(text="◄️ Отмена",                callback_data=f"adm:user:{user_id}")],
+        [InlineKeyboardButton(text="◀️ Отмена",                callback_data=f"adm:user:{user_id}")],
     ])
     await edit_menu(
         bot, callback.message.chat.id, callback.message.message_id,
@@ -544,6 +569,8 @@ async def cb_adm_promote_user(callback: CallbackQuery, bot: Bot, state: FSMConte
     )
     await callback.answer()
 
+
+# ── FSM cancel handlers ────────────────────────────────────────────
 
 @router.callback_query(
     AdminStates.master_editing_name, F.data.startswith("adm:master:")

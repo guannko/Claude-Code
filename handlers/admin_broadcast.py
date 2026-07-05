@@ -79,6 +79,7 @@ async def msg_broadcast_text(message: Message, state: FSMContext, bot: Bot) -> N
         ],
     ])
 
+    # Показываем предпросмотр
     if photo_id:
         await bot.send_photo(
             chat_id=message.chat.id,
@@ -109,6 +110,7 @@ async def cb_broadcast_confirm(callback: CallbackQuery, state: FSMContext, bot: 
     user_ids = await get_all_user_ids()
     await callback.answer("📤 Рассылка запущена...", show_alert=False)
 
+    # Редактируем сообщение — показываем прогресс
     try:
         await callback.message.edit_caption(
             caption=f"📤 <b>Рассылка запущена...</b>\n\nОтправляем {len(user_ids)} пользователям.",
@@ -136,10 +138,11 @@ async def cb_broadcast_confirm(callback: CallbackQuery, state: FSMContext, bot: 
         except Exception as e:
             failed += 1
             logger.debug("broadcast to %s failed: %s", uid, e)
-        await asyncio.sleep(0.05)
+        await asyncio.sleep(0.05)  # ~20 msg/sec — в рамках лимитов Telegram
 
     logger.info("Рассылка завершена: %d отправлено, %d ошибок", sent, failed)
 
+    # Итоговый отчёт
     result_text = (
         f"✅ <b>Рассылка завершена</b>\n\n"
         f"📤 Отправлено: {sent}\n"

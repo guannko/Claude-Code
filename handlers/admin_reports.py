@@ -30,13 +30,13 @@ def _reports_menu_kb() -> InlineKeyboardMarkup:
             InlineKeyboardButton(text="📅 30 дней",  callback_data="reports:month"),
             InlineKeyboardButton(text="📅 90 дней",  callback_data="reports:quarter"),
         ],
-        [InlineKeyboardButton(text="◄️ Назад", callback_data="adm:panel")],
+        [InlineKeyboardButton(text="◀️ Назад", callback_data="adm:panel")],
     ])
 
 
 def _back_kb() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="◄️ К отчётам", callback_data="reports:menu")],
+        [InlineKeyboardButton(text="◀️ К отчётам", callback_data="reports:menu")],
         [InlineKeyboardButton(text="🏠 Панель",     callback_data="adm:panel")],
     ])
 
@@ -44,19 +44,24 @@ def _back_kb() -> InlineKeyboardMarkup:
 def _format_report(stats: dict) -> str:
     days = stats["days"]
     lines = [f"📈 <b>Отчёт за {days} дней</b>\n"]
+
     lines.append(f"📋 Всего записей: <b>{stats['bookings_total']}</b>")
     lines.append(f"✅ Подтверждено: <b>{stats['bookings_confirmed']}</b>")
     lines.append(f"👥 Новых клиентов: <b>{stats['new_clients']}</b>")
+
     if stats["avg_rating"] is not None:
         lines.append(f"⭐ Средний рейтинг: <b>{stats['avg_rating']}</b>")
+
     if stats["top_services"]:
         lines.append("\n🏆 <b>Топ услуги:</b>")
         for i, s in enumerate(stats["top_services"], 1):
             lines.append(f"  {i}. {s['service']} — {s['cnt']} записей")
+
     if stats["top_masters"]:
         lines.append("\n👩‍🎨 <b>Топ мастера:</b>")
         for i, m in enumerate(stats["top_masters"], 1):
             lines.append(f"  {i}. {m['master']} — {m['cnt']} записей")
+
     return "\n".join(lines)
 
 
@@ -65,6 +70,7 @@ async def cb_reports_menu(callback: CallbackQuery, bot: Bot) -> None:
     if not await is_admin(callback.from_user.id):
         await callback.answer("⛔ Нет доступа.", show_alert=True)
         return
+
     await edit_menu(
         bot, callback.message.chat.id, callback.message.message_id,
         "📈 <b>Отчёты</b>\n\nВыберите период:",
@@ -79,10 +85,13 @@ async def cb_reports_period(callback: CallbackQuery, bot: Bot) -> None:
     if not await is_admin(callback.from_user.id):
         await callback.answer("⛔ Нет доступа.", show_alert=True)
         return
+
     days_map = {"reports:week": 7, "reports:month": 30, "reports:quarter": 90}
     days = days_map[callback.data]
+
     stats = await get_period_stats(days)
     text = _format_report(stats)
+
     await edit_menu(
         bot, callback.message.chat.id, callback.message.message_id,
         text, _back_kb(), photo_url=_ADMIN_PHOTO,
