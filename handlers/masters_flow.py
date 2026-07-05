@@ -23,7 +23,7 @@ from aiogram.fsm.context import FSMContext
 
 from config import ADMIN_ID
 from services.permissions import is_admin
-from database import (
+from bot_db import (
     create_booking,
     get_masters_by_category,
     get_master,
@@ -47,7 +47,7 @@ from keyboards import (
 from services.sender import edit_menu
 from states import MasterFlowStates
 from data.salon import SECTION_PHOTOS
-from database import get_categories, get_category_by_key, get_db_services_by_category, get_db_service_by_id, get_setting
+from bot_db import get_categories, get_category_by_key, get_db_services_by_category, get_db_service_by_id, get_setting
 
 logger = logging.getLogger(__name__)
 router = Router()
@@ -479,7 +479,7 @@ async def cb_mst_confirm(callback: CallbackQuery, bot: Bot, state: FSMContext) -
 
     # Лояльность: увеличить счётчик посещений
     try:
-        from database import increment_visit_count
+        from bot_db import increment_visit_count
         visit_count = await increment_visit_count(user.id)
         if visit_count % 5 == 0:
             await bot.send_message(
@@ -557,7 +557,7 @@ async def cb_mst_cancel(callback: CallbackQuery, bot: Bot, state: FSMContext) ->
     await state.clear()
     lang = await get_user_lang(callback.from_user.id)
     from texts import t
-    from database import get_setting
+    from bot_db import get_setting
     salon_name = await get_setting("salon_name", "Салон красоты")
     await edit_menu(
         bot, callback.message.chat.id, callback.message.message_id,
@@ -572,7 +572,7 @@ async def cb_mst_cancel(callback: CallbackQuery, bot: Bot, state: FSMContext) ->
 
 @router.callback_query(F.data.startswith("mst:approve:"))
 async def cb_mst_approve(callback: CallbackQuery, bot: Bot) -> None:
-    from database import get_master_by_telegram_id as _get_master_by_tid
+    from bot_db import get_master_by_telegram_id as _get_master_by_tid
     # Разрешено: мастер (привязан telegram_user_id) или администратор
     caller_master = None
     try:
@@ -603,10 +603,8 @@ async def cb_mst_approve(callback: CallbackQuery, bot: Bot) -> None:
     await callback.answer("✅ Запись принята")
 
     # Уведомить клиента
-    # Попробуем получить детали из текста уведомления
     msg_text = callback.message.text or ""
     service_line = ""
-    master_line = ""
     date_line = ""
     time_line = ""
     for line in msg_text.splitlines():
@@ -621,7 +619,7 @@ async def cb_mst_approve(callback: CallbackQuery, bot: Bot) -> None:
     # Имя мастера берём из сообщения — ищем в БД по telegram_user_id
     master_name = "мастер"
     master_db = None
-    from database import get_master_by_telegram_id
+    from bot_db import get_master_by_telegram_id
     try:
         master_db = await get_master_by_telegram_id(callback.from_user.id)
     except Exception:
@@ -662,7 +660,7 @@ async def cb_mst_approve(callback: CallbackQuery, bot: Bot) -> None:
 
 @router.callback_query(F.data.startswith("mst:reject:"))
 async def cb_mst_reject(callback: CallbackQuery, bot: Bot) -> None:
-    from database import get_master_by_telegram_id as _get_master_by_tid2
+    from bot_db import get_master_by_telegram_id as _get_master_by_tid2
     # Разрешено: мастер (привязан telegram_user_id) или администратор
     caller_master2 = None
     try:

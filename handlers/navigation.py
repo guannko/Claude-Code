@@ -22,7 +22,7 @@ from aiogram import Router, Bot, F
 from aiogram.types import CallbackQuery, Message, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.fsm.context import FSMContext
 
-from database import (
+from bot_db import (
     get_user, get_user_lang, update_user_lang,
     save_last_msg_id, get_last_msg_id, get_user_bookings,
     update_user_birthdate, get_user_visit_count,
@@ -372,7 +372,7 @@ async def cb_lang_toggle(callback: CallbackQuery, bot: Bot, state: FSMContext) -
     label = "🌐 " + ("English" if new_lang == "en" else "Русский")
 
     # Если мастер — остаёмся в панели мастера
-    from database import get_master_by_telegram_id
+    from bot_db import get_master_by_telegram_id
     from keyboards import master_panel_kb
     master = await get_master_by_telegram_id(callback.from_user.id)
     if master and master.get("is_active", 1) and not await _is_admin(callback.from_user.id):
@@ -389,7 +389,7 @@ async def cb_lang_toggle(callback: CallbackQuery, bot: Bot, state: FSMContext) -
 
     # Если переключение из админ-панели — остаёмся в панели + меняем глобальный язык
     if await _is_admin(callback.from_user.id):
-        from database import set_setting
+        from bot_db import set_setting
         await set_setting("default_lang", new_lang)   # глобальный язык салона
         msg_text = callback.message.caption or callback.message.text or ""
         if "Панель администратора" in msg_text or "Admin panel" in msg_text:
@@ -471,11 +471,6 @@ async def cb_help(callback: CallbackQuery, bot: Bot) -> None:
 
 
 # ── Закрыть уведомление → обновить основное меню ───────────
-#
-# Используется когда бот отправляет клиенту отдельное текстовое
-# сообщение (подтверждение/отмена записи от админа).
-# Нажатие "В меню" удаляет это уведомление и обновляет
-# постоянное фото-меню (по last_msg_id из БД).
 
 @router.callback_query(F.data == "notify:dismiss")
 async def cb_notify_dismiss(callback: CallbackQuery, bot: Bot, state: FSMContext) -> None:
