@@ -11,7 +11,7 @@ from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKe
 from aiogram.fsm.context import FSMContext
 
 from config import ADMIN_ID
-from database import (
+from bot_db import (
     get_users_count, get_today_users_count, get_last_user, get_recent_users,
     get_bookings_count, get_today_bookings_count, get_all_bookings,
     get_all_admins, add_admin, remove_admin,
@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 router = Router()
 
 
-# ── Вспомогательные функции ─────────────────────────────────
+# ── Вспомогательные функции ─────────────────────────────
 
 def _admin_panel_kb(user_id: int) -> InlineKeyboardMarkup:
     rows = [
@@ -113,7 +113,7 @@ async def _build_admin_panel_text(lang: str = "ru") -> str:
         )
 
 
-# ── Фото-панель: главный экран ──────────────────────────────
+# ── Фото-панель: главный экран ──────────────────────────
 
 @router.callback_query(F.data == "adm:panel")
 async def cb_adm_panel(callback: CallbackQuery, bot: Bot, state: FSMContext) -> None:
@@ -132,7 +132,7 @@ async def cb_adm_panel(callback: CallbackQuery, bot: Bot, state: FSMContext) -> 
     await callback.answer()
 
 
-# ── Фото-панель: клиентское меню для админа ─────────────────
+# ── Фото-панель: клиентское меню для админа ─────────────
 
 @router.callback_query(F.data == "adm:client_view")
 async def cb_adm_client_view(callback: CallbackQuery, bot: Bot, state: FSMContext) -> None:
@@ -144,7 +144,7 @@ async def cb_adm_client_view(callback: CallbackQuery, bot: Bot, state: FSMContex
     lang = await get_user_lang(callback.from_user.id)
     user_db = await get_user(callback.from_user.id)
     name = (user_db or {}).get("full_name") or callback.from_user.first_name
-    from database import get_setting
+    from bot_db import get_setting
     salon_name = await get_setting("salon_name", "Салон красоты")
     from keyboards import main_menu_with_admin_kb as _mwakb
     await edit_menu(
@@ -156,7 +156,7 @@ async def cb_adm_client_view(callback: CallbackQuery, bot: Bot, state: FSMContex
     await callback.answer()
 
 
-# ── Фото-панель: новые записи ───────────────────────────────
+# ── Фото-панель: новые записи ───────────────────────
 
 @router.callback_query(F.data == "adm:bookings_new")
 async def cb_adm_bookings_new(callback: CallbackQuery, bot: Bot) -> None:
@@ -187,7 +187,7 @@ async def cb_adm_bookings_new(callback: CallbackQuery, bot: Bot) -> None:
     await callback.answer()
 
 
-# ── Фото-панель: все записи ─────────────────────────────────
+# ── Фото-панель: все записи ──────────────────────────
 
 @router.callback_query(F.data == "adm:bookings_all")
 async def cb_adm_bookings_all(callback: CallbackQuery, bot: Bot) -> None:
@@ -217,7 +217,7 @@ async def cb_adm_bookings_all(callback: CallbackQuery, bot: Bot) -> None:
     await callback.answer()
 
 
-# ── Фото-панель: клиенты ────────────────────────────────────
+# ── Фото-панель: клиенты ─────────────────────────────
 
 @router.callback_query(F.data == "adm:users")
 async def cb_adm_users(callback: CallbackQuery, bot: Bot) -> None:
@@ -239,7 +239,7 @@ async def cb_adm_users_page(callback: CallbackQuery, bot: Bot) -> None:
 
 
 async def _show_users_page(callback, bot, offset: int = 0) -> None:
-    from database import get_all_users_paginated, get_users_total_count
+    from bot_db import get_all_users_paginated, get_users_total_count
     PAGE = 8
     users = await get_all_users_paginated(limit=PAGE, offset=offset)
     total = await get_users_total_count()
@@ -258,7 +258,6 @@ async def _show_users_page(callback, bot, offset: int = 0) -> None:
                 text=name,
                 callback_data=f"adm:user:{u['user_id']}",
             )])
-        # Pagination
         nav = []
         if offset > 0:
             nav.append(InlineKeyboardButton(text="◀️", callback_data=f"adm:users_page:{max(0,offset-PAGE)}"))
@@ -281,7 +280,7 @@ async def cb_adm_user_card(callback: CallbackQuery, bot: Bot) -> None:
         await callback.answer("⛔ Нет доступа.", show_alert=True)
         return
     user_id = int(callback.data[len("adm:user:"):])
-    from database import get_user as _get_user, get_master_by_telegram_id
+    from bot_db import get_user as _get_user, get_master_by_telegram_id
     u = await _get_user(user_id)
     if not u:
         await callback.answer("Пользователь не найден", show_alert=True)
@@ -322,7 +321,7 @@ async def cb_adm_user_card(callback: CallbackQuery, bot: Bot) -> None:
     await callback.answer()
 
 
-# ── Фото-панель: статистика ─────────────────────────────────
+# ── Фото-панель: статистика ─────────────────────────
 
 @router.callback_query(F.data == "adm:stats")
 async def cb_adm_stats(callback: CallbackQuery, bot: Bot) -> None:
@@ -342,7 +341,7 @@ async def cb_adm_stats(callback: CallbackQuery, bot: Bot) -> None:
     await callback.answer()
 
 
-# ── История действий ────────────────────────────────────────
+# ── История действий ────────────────────────────────────
 
 @router.callback_query(F.data == "adm:history")
 async def cb_adm_history(callback: CallbackQuery, bot: Bot) -> None:
@@ -355,7 +354,7 @@ async def cb_adm_history(callback: CallbackQuery, bot: Bot) -> None:
     else:
         lines = ["📋 <b>История действий</b> (последние 40)\n"]
         for r in rows:
-            ts = r["created_at"][:16]  # YYYY-MM-DD HH:MM
+            ts = r["created_at"][:16]
             icon = "✅" if r["status"] == "ok" else "❌"
             target = f" → {r['target']}" if r["target"] else ""
             details = f"\n    ↳ {r['details']}" if r["details"] else ""
@@ -374,7 +373,7 @@ async def cb_adm_history(callback: CallbackQuery, bot: Bot) -> None:
     await callback.answer()
 
 
-# ── Команда /admin ──────────────────────────────────────────
+# ── Команда /admin ─────────────────────────────────────
 
 @router.message(Command("admin"))
 async def cmd_admin(message: Message) -> None:
@@ -385,14 +384,13 @@ async def cmd_admin(message: Message) -> None:
     text = await _build_admin_text()
     await message.answer(text, reply_markup=_admin_panel_kb(message.from_user.id))
 
-    # Удаляем команду пользователя для чистоты чата
     try:
         await message.delete()
     except Exception:
         pass
 
 
-# ── Callback: обновить панель ───────────────────────────────
+# ── Callback: обновить панель ─────────────────────────
 
 @router.callback_query(F.data == "admin:refresh")
 async def cb_admin_refresh(callback: CallbackQuery) -> None:
@@ -404,11 +402,11 @@ async def cb_admin_refresh(callback: CallbackQuery) -> None:
     try:
         await callback.message.edit_text(text, reply_markup=_admin_panel_kb(callback.from_user.id))
     except Exception:
-        pass  # текст не изменился — Telegram вернёт ошибку, игнорируем
+        pass
     await callback.answer("✅ Обновлено")
 
 
-# ── Callback: список пользователей ─────────────────────────
+# ── Callback: список пользователей ─────────────────
 
 @router.callback_query(F.data == "admin:users")
 async def cb_admin_users(callback: CallbackQuery) -> None:
@@ -433,7 +431,7 @@ async def cb_admin_users(callback: CallbackQuery) -> None:
     await callback.answer()
 
 
-# ── Callback: список записей ────────────────────────────────
+# ── Callback: список записей ─────────────────────────
 
 @router.callback_query(F.data == "admin:bookings")
 async def cb_admin_bookings(callback: CallbackQuery) -> None:
@@ -461,7 +459,7 @@ async def cb_admin_bookings(callback: CallbackQuery) -> None:
     await callback.answer()
 
 
-# ── Callback: закрыть панель ────────────────────────────────
+# ── Callback: закрыть панель ──────────────────────────
 
 @router.callback_query(F.data == "admin:close")
 async def cb_admin_close(callback: CallbackQuery) -> None:
@@ -476,9 +474,9 @@ async def cb_admin_close(callback: CallbackQuery) -> None:
     await callback.answer()
 
 
-# ══════════════════════════════════════════════════════════
+# ══════════════════════════════════════════════════════
 #  Управление администраторами (только для владельца)
-# ══════════════════════════════════════════════════════════
+# ══════════════════════════════════════════════════════
 
 def _admins_list_kb(admins: list[dict]) -> InlineKeyboardMarkup:
     rows = []
@@ -562,7 +560,6 @@ async def msg_admin_entering_id(message: Message, bot: Bot, state: FSMContext) -
     msg_id = data.get("admin_msg_id")
     chat_id = message.chat.id
 
-    # Пробуем извлечь user_id: из пересланного сообщения или из текста
     new_user_id = None
     username = ""
     full_name = ""
@@ -578,7 +575,7 @@ async def msg_admin_entering_id(message: Message, bot: Bot, state: FSMContext) -
         except ValueError:
             if text.startswith("@"):
                 uname = text.lstrip("@")
-                from database import get_user_by_username
+                from bot_db import get_user_by_username
                 found = await get_user_by_username(uname)
                 if found:
                     new_user_id = found["user_id"]
@@ -634,7 +631,6 @@ async def msg_admin_entering_id(message: Message, bot: Bot, state: FSMContext) -
     await add_admin(new_user_id, username, full_name, message.from_user.id)
     await state.clear()
 
-    # Показываем обновлённый список
     admins = await get_all_admins()
     lines = ["✅ <b>Администратор добавлен!</b>\n\n👥 <b>Администраторы</b>\n"]
     for i, a in enumerate(admins, 1):
@@ -686,7 +682,7 @@ async def cb_admin_remove(callback: CallbackQuery) -> None:
     await callback.answer("✅ Удалён")
 
 
-# ── Отмена FSM при нажатии "Назад" ─────────────────────────
+# ── Отмена FSM при нажатии "Назад" ─────────────────
 
 @router.callback_query(AdminStates.entering_admin_id, F.data == "admin:admins")
 async def cb_admin_cancel_add(callback: CallbackQuery, state: FSMContext) -> None:
