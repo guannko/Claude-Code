@@ -9,7 +9,7 @@ from aiogram.types import (
 from aiogram.fsm.context import FSMContext
 from aiogram.filters import StateFilter
 
-from database.license import get_license_status, activate_license
+from bot_db.license import get_license_status, activate_license
 from services.permissions import is_admin
 from services.sender import edit_menu
 from states import AdminSettingsStates
