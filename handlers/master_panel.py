@@ -24,9 +24,12 @@ _STATUS_ICONS = {"new": "🟡", "confirmed": "✅", "cancelled": "❌", "rejecte
 
 
 async def build_master_panel_text(master: dict) -> str:
+    """Текст главного экрана мастера."""
     master_id = master["master_id"]
     bookings = await get_upcoming_bookings_for_master(master_id, limit=3)
+
     lines = [f"👩‍🎨 <b>Панель мастера — {master['name']}</b>\n"]
+
     if bookings:
         lines.append("📋 <b>Ближайшие записи:</b>")
         for b in bookings:
@@ -37,7 +40,9 @@ async def build_master_panel_text(master: dict) -> str:
             )
     else:
         lines.append("📋 Записей пока нет.")
+
     return "\n".join(lines)
+
 
 
 @router.callback_query(F.data == "mst_panel:schedule")

@@ -23,6 +23,8 @@ router = Router()
 
 @router.message(Command("master"))
 async def cmd_master(message: Message, state: FSMContext) -> None:
+    """Начало регистрации мастера."""
+    # Проверяем — вдруг уже зарегистрирован
     existing = await get_master_by_telegram_id(message.from_user.id)
     if existing:
         await message.answer(
@@ -31,6 +33,7 @@ async def cmd_master(message: Message, state: FSMContext) -> None:
             parse_mode="HTML",
         )
         return
+
     await state.set_state(MasterRegStates.waiting_code)
     await message.answer(
         "🔑 <b>Регистрация мастера</b>\n\n"
@@ -42,8 +45,11 @@ async def cmd_master(message: Message, state: FSMContext) -> None:
 
 @router.message(MasterRegStates.waiting_code)
 async def msg_master_code(message: Message, state: FSMContext) -> None:
+    """Обработка введённого кода мастера."""
     code = message.text.strip().lower()
+
     master = await get_master(code)
+
     if not master:
         await message.answer(
             "❌ <b>Код не найден.</b>\n\n"
@@ -52,6 +58,8 @@ async def msg_master_code(message: Message, state: FSMContext) -> None:
         )
         await state.clear()
         return
+
+    # Проверяем — не привязан ли этот мастер к другому аккаунту
     if master.get("telegram_user_id") and master["telegram_user_id"] != message.from_user.id:
         await message.answer(
             "⚠️ Этот код уже используется другим аккаунтом.\n"
@@ -60,8 +68,10 @@ async def msg_master_code(message: Message, state: FSMContext) -> None:
         )
         await state.clear()
         return
+
     await set_master_telegram_id(code, message.from_user.id)
     await state.clear()
+
     await message.answer(
         f"✅ <b>Вы зарегистрированы как {master['name']}!</b>\n\n"
         f"Теперь вы будете получать уведомления о новых записях и сможете "
