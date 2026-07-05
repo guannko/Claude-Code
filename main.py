@@ -14,8 +14,8 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
 from config import BOT_TOKEN, LOG_PATH
-from database import init_db, get_all_settings
-from database.license import init_license_table, init_trial
+from bot_db import init_db, get_all_settings
+from bot_db.license import init_license_table, init_trial
 from handlers import all_routers
 from middlewares import LoggingMiddleware, ThrottlingMiddleware, LicenseMiddleware
 from services.reminders import send_reminders, send_review_requests, send_birthday_greetings
@@ -65,7 +65,7 @@ async def main() -> None:
     for router in all_routers:
         dp.include_router(router)
 
-    # ── Планировщик напоминаний ─────────────────────────────
+    # ── Планировщик напоминаний ────────────────────────────────────────────────
     scheduler = AsyncIOScheduler(timezone="Europe/Moscow")
     scheduler.add_job(send_reminders,        CronTrigger(hour=14, minute=0), args=[bot], id="daily_reminders",       replace_existing=True)
     scheduler.add_job(send_review_requests,  CronTrigger(hour=10, minute=0), args=[bot], id="daily_review_requests", replace_existing=True)
@@ -73,7 +73,7 @@ async def main() -> None:
     scheduler.start()
     logger.info("Планировщик запущен: напоминания 14:00, отзывы 10:00, ДР 09:00")
 
-    # ── Heartbeat → Supabase → Админка (real-time) ──────────────
+    # ── Heartbeat → Supabase → Админка (real-time) ────────────────────────────────
     asyncio.create_task(heartbeat_loop())
 
     logger.info("Бот запущен. Ожидание сообщений...")
