@@ -3,7 +3,7 @@
 """
 
 from config import ADMIN_ID
-from database import is_admin_in_db
+from bot_db import is_admin_in_db
 
 
 async def is_admin(user_id: int) -> bool:

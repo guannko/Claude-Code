@@ -7,7 +7,7 @@ from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 async def categories_kb() -> InlineKeyboardMarkup:
     """Выбор категории — используется в просмотре и в FSM записи."""
-    from database import get_categories
+    from bot_db import get_categories
     categories = await get_categories()
     buttons = []
     for cat in categories:
@@ -44,7 +44,7 @@ async def services_list_kb(category: str, back_cb: str = "menu:services") -> Inl
     """Список услуг категории для FSM записи (кликабельные).
     back_cb — куда ведёт «Назад» (по умолчанию к каталогу категорий).
     """
-    from database import get_db_services_by_category
+    from bot_db import get_db_services_by_category
     items = await get_db_services_by_category(category)
     buttons = []
     for item in items:

@@ -10,7 +10,7 @@ MONTHS_RU = ["", "янв", "фев", "мар", "апр", "май", "июн", "и
 
 async def master_categories_kb() -> InlineKeyboardMarkup:
     """Категории мастеров — динамически из DB."""
-    from database import get_categories
+    from bot_db import get_categories
     categories = await get_categories()
     buttons = []
     for cat in categories:
