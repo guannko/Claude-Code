@@ -5,7 +5,7 @@ from aiogram import Router, Bot, F
 from aiogram.types import Message
 from aiogram.filters import StateFilter
 from aiogram.fsm.state import default_state
-from database import get_user_lang
+from bot_db import get_user_lang
 from services.sender import send_menu
 from keyboards import main_menu_kb
 from texts import t
@@ -18,7 +18,7 @@ router = Router()
 @router.message(StateFilter(default_state))
 async def unknown_message(message: Message, bot: Bot) -> None:
     """Любое текстовое сообщение вне FSM → возврат в меню."""
-    from database import get_setting
+    from bot_db import get_setting
     from services.permissions import is_admin as _is_admin
     from keyboards import main_menu_with_admin_kb
     lang = await get_user_lang(message.from_user.id)

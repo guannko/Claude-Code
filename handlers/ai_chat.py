@@ -61,7 +61,6 @@ async def _get_system_prompt() -> str:
         if hours_we:
             lines.append(f"  {hours_we}")
 
-    # Услуги из БД
     categories = await get_categories()
     if categories:
         lines += ["", "УСЛУГИ И ЦЕНЫ:"]
@@ -77,7 +76,6 @@ async def _get_system_prompt() -> str:
                     dur_str = f"{int(h)} ч" if h == int(h) else f"{h} ч"
                 lines.append(f"  - {item['name']} — {item['price']}{currency} / {dur_str}")
 
-    # Мастера из БД
     all_masters = []
     for cat in categories:
         masters = await get_masters_by_category(cat["cat_key"])
@@ -98,11 +96,9 @@ async def _get_system_prompt() -> str:
     return "\n".join(lines)
 
 
-# ── Клавиатуры ────────────────────────────────────────────
-
 def _ai_prompt_kb() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="◀️ Назад", callback_data="ai:back")]
+        [InlineKeyboardButton(text="◄️ Назад", callback_data="ai:back")]
     ])
 
 
@@ -110,12 +106,10 @@ def _ai_answer_kb() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [
             InlineKeyboardButton(text="🤖 Ещё вопрос", callback_data="menu:ai_chat"),
-            InlineKeyboardButton(text="◀️ Меню",        callback_data="menu:main"),
+            InlineKeyboardButton(text="◄️ Меню",        callback_data="menu:main"),
         ]
     ])
 
-
-# ── Кнопка "Назад" из AI-чата ─────────────────────────────
 
 @router.callback_query(F.data == "ai:back")
 async def cb_ai_back(callback: CallbackQuery, bot: Bot, state: FSMContext) -> None:
@@ -138,14 +132,11 @@ async def cb_ai_back(callback: CallbackQuery, bot: Bot, state: FSMContext) -> No
     await callback.answer()
 
 
-# ── Обработка текстового вопроса пользователя ─────────────
-
 @router.message(AiChatStates.waiting_question)
 async def msg_ai_question(message: Message, bot: Bot, state: FSMContext) -> None:
     question = message.text.strip() if message.text else ""
     lang = await get_user_lang(message.from_user.id)
 
-    # Удаляем сообщение пользователя
     try:
         await message.delete()
     except Exception:
@@ -157,7 +148,6 @@ async def msg_ai_question(message: Message, bot: Bot, state: FSMContext) -> None
     if not question:
         return
 
-    # Показываем "думаю..."
     try:
         await edit_menu(
             bot, message.chat.id, msg_id,
@@ -168,7 +158,6 @@ async def msg_ai_question(message: Message, bot: Bot, state: FSMContext) -> None
     except Exception:
         pass
 
-    # Запрос к Groq или заглушка
     if not GROQ_API_KEY:
         answer = t("ai_chat_unavailable", lang)
     else:
@@ -176,7 +165,6 @@ async def msg_ai_question(message: Message, bot: Bot, state: FSMContext) -> None
         if answer is None:
             answer = t("ai_chat_error", lang)
 
-    # Форматируем ответ
     response_text = (
         f"🤖 <b>Вопрос:</b> {question}\n\n"
         f"💬 <b>Ответ:</b>\n{answer}"
@@ -188,10 +176,6 @@ async def msg_ai_question(message: Message, bot: Bot, state: FSMContext) -> None
         photo_url=SECTION_PHOTOS.get("ai"),
     )
 
-    # Остаёмся в состоянии waiting_question для следующего вопроса
-
-
-# ── Groq API запрос ───────────────────────────────────────
 
 async def _ask_groq(question: str) -> str | None:
     """Отправить вопрос в Groq, вернуть текст ответа или None при ошибке."""
