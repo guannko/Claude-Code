@@ -54,6 +54,7 @@ async def get_license_status() -> dict:
     trial_started, lic_key, lic_expires = row
     now = datetime.now(timezone.utc)
 
+    # Активная коммерческая лицензия
     if lic_key and lic_expires:
         try:
             exp = datetime.fromisoformat(lic_expires)
@@ -70,6 +71,7 @@ async def get_license_status() -> dict:
         except Exception:
             pass
 
+    # Триальный период
     if trial_started:
         try:
             started = datetime.fromisoformat(trial_started)
