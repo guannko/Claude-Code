@@ -63,7 +63,7 @@ _MONTHS_GEN_RU = [
 _CAT_ICONS = {
     "manicure": "💅",
     "hair": "✂️",
-    "barber": "🪒",
+    "barber": "🪲",
 }
 
 
@@ -95,7 +95,7 @@ def _cancel_kb() -> InlineKeyboardMarkup:
     ])
 
 
-# ── mst:cats — выбор категории ────────────────────────────
+# ── mst:cats — выбор категории ──────────────────────────────
 
 @router.callback_query(F.data == "mst:cats")
 async def cb_mst_cats(callback: CallbackQuery, bot: Bot, state: FSMContext) -> None:
@@ -109,7 +109,7 @@ async def cb_mst_cats(callback: CallbackQuery, bot: Bot, state: FSMContext) -> N
     await callback.answer()
 
 
-# ── mst:cat:{category} — список мастеров ─────────────────
+# ── mst:cat:{category} — список мастеров ─────────────────────
 
 @router.callback_query(F.data.startswith("mst:cat:"))
 async def cb_mst_cat(callback: CallbackQuery, bot: Bot, state: FSMContext) -> None:
@@ -133,7 +133,7 @@ async def cb_mst_cat(callback: CallbackQuery, bot: Bot, state: FSMContext) -> No
     await callback.answer()
 
 
-# ── mst:pick:{master_id} — список услуг мастера ──────────
+# ── mst:pick:{master_id} — список услуг мастера ──────────────────
 
 @router.callback_query(F.data.startswith("mst:pick:"))
 async def cb_mst_pick(callback: CallbackQuery, bot: Bot, state: FSMContext) -> None:
@@ -158,7 +158,7 @@ async def cb_mst_pick(callback: CallbackQuery, bot: Bot, state: FSMContext) -> N
     await callback.answer()
 
 
-# ── mst:svc:{master_id}:{service_id} — показать даты ─────
+# ── mst:svc:{master_id}:{service_id} — показать даты ───────────────
 
 @router.callback_query(F.data.startswith("mst:svc:"))
 async def cb_mst_svc(callback: CallbackQuery, bot: Bot, state: FSMContext) -> None:
@@ -166,7 +166,7 @@ async def cb_mst_svc(callback: CallbackQuery, bot: Bot, state: FSMContext) -> No
 
     # mst:svc:{master_id}:{service_id}
     rest = callback.data[len("mst:svc:"):]
-    # service_id может содержать "_", master_id тоже — разбиваем по первому ":"
+    # service_id может содержать "_", master_id тоже — разбиваем по первом ":"
     colon_idx = rest.index(":")
     master_id = rest[:colon_idx]
     service_id = rest[colon_idx + 1:]
@@ -260,7 +260,7 @@ async def cb_mst_date(callback: CallbackQuery, bot: Bot, state: FSMContext) -> N
     await callback.answer()
 
 
-# ── mst:slot:... — запросить телефон (FSM) ────────────────
+# ── mst:slot:... — запросить телефон (FSM) ──────────────────
 
 @router.callback_query(F.data.startswith("mst:slot:"))
 async def cb_mst_slot(callback: CallbackQuery, bot: Bot, state: FSMContext) -> None:
@@ -550,7 +550,7 @@ async def cb_mst_confirm(callback: CallbackQuery, bot: Bot, state: FSMContext) -
         logger.warning("Не удалось отправить уведомление мастеру/админу: %s", e)
 
 
-# ── mst:cancel — отмена, возврат в меню ──────────────────
+# ── mst:cancel — отмена, возврат в меню ──────────────────────
 
 @router.callback_query(F.data == "mst:cancel")
 async def cb_mst_cancel(callback: CallbackQuery, bot: Bot, state: FSMContext) -> None:
@@ -568,7 +568,7 @@ async def cb_mst_cancel(callback: CallbackQuery, bot: Bot, state: FSMContext) ->
     await callback.answer()
 
 
-# ── mst:approve:{booking_id}:{client_user_id} ─────────────
+# ── mst:approve:{booking_id}:{client_user_id} ───────────────────────────
 
 @router.callback_query(F.data.startswith("mst:approve:"))
 async def cb_mst_approve(callback: CallbackQuery, bot: Bot) -> None:
@@ -603,8 +603,10 @@ async def cb_mst_approve(callback: CallbackQuery, bot: Bot) -> None:
     await callback.answer("✅ Запись принята")
 
     # Уведомить клиента
+    # Попробуем получить детали из текста уведомления
     msg_text = callback.message.text or ""
     service_line = ""
+    master_line = ""
     date_line = ""
     time_line = ""
     for line in msg_text.splitlines():
@@ -656,7 +658,7 @@ async def cb_mst_approve(callback: CallbackQuery, bot: Bot) -> None:
         logger.warning("Не удалось отправить подтверждение клиенту %s: %s", client_user_id, e)
 
 
-# ── mst:reject:{booking_id}:{client_user_id} ──────────────
+# ── mst:reject:{booking_id}:{client_user_id} ────────────────────────────
 
 @router.callback_query(F.data.startswith("mst:reject:"))
 async def cb_mst_reject(callback: CallbackQuery, bot: Bot) -> None:
