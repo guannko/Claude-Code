@@ -43,6 +43,7 @@ ASK_NAME_TEXT = (
 async def cmd_start(message: Message, bot: Bot, state: FSMContext) -> None:
     user = message.from_user
 
+    # Удаляем /start сообщение
     try:
         await message.delete()
     except Exception:
@@ -51,6 +52,7 @@ async def cmd_start(message: Message, bot: Bot, state: FSMContext) -> None:
     await state.clear()
     main_photo = SECTION_PHOTOS.get("main", WELCOME_PHOTO_URL)
 
+    # ── 1. Администратор ──────────────────────────────────────────
     if await is_admin(user.id):
         await _ensure_registered(user)
         from handlers.admin import _build_admin_panel_text
@@ -60,24 +62,28 @@ async def cmd_start(message: Message, bot: Bot, state: FSMContext) -> None:
         await send_menu(message, bot, text, admin_panel_kb(is_owner(user.id), admin_lang), photo_url=admin_photo)
         return
 
+    # ── 2. Мастер ──────────────────────────────────────────────
     from bot_db import get_master_by_telegram_id
     from keyboards import master_panel_kb
     from handlers.master_panel import build_master_panel_text
     master = await get_master_by_telegram_id(user.id)
     if master and master.get("is_active", 1):
-        await _ensure_registered(user)
+        await _ensure_registered(user)  # тихо регистрируем, без уведомления
         text = await build_master_panel_text(master)
         master_photo = master.get("photo_file_id") or SECTION_PHOTOS.get("masters")
         master_lang = await get_user_lang(user.id)
         await send_menu(message, bot, text, master_panel_kb(master_lang), photo_url=master_photo)
         return
 
+    # ── 3. Клиент ───────────────────────────────────────────────
     existing = await get_user(user.id)
+    # Глобальный язык салона (устанавливается админом) как дефолт для новых пользователей
     salon_default_lang = await get_setting("default_lang", DEFAULT_LANG)
     tg_lang = (user.language_code or salon_default_lang)[:2]
     client_lang = tg_lang if tg_lang in ("ru", "en") else salon_default_lang
     from texts import t
 
+    # Если нет в БД или не принял GDPR — показываем экран согласия
     needs_gdpr = (not existing) or (existing and not existing.get("gdpr_accepted"))
     if needs_gdpr:
         if not existing:
@@ -104,7 +110,9 @@ async def cmd_start(message: Message, bot: Bot, state: FSMContext) -> None:
         await save_last_msg_id(user.id, gdpr_msg.message_id)
         return
 
+    # GDPR принят — показываем меню
     if not existing.get("full_name"):
+        # Имя ещё не введено
         try:
             ask_msg = await bot.send_photo(
                 chat_id=message.chat.id, photo=main_photo,
@@ -129,6 +137,7 @@ async def cmd_start(message: Message, bot: Bot, state: FSMContext) -> None:
 
 
 async def _ensure_registered(user) -> None:
+    """Тихо регистрирует пользователя если его нет в users (без уведомлений)."""
     from bot_db import get_user as _get_user
     if not await _get_user(user.id):
         await register_user(
@@ -160,6 +169,7 @@ async def msg_entering_name(message: Message, bot: Bot, state: FSMContext) -> No
     menu_msg_id = data.get("menu_msg_id")
     await state.clear()
 
+    # Проверяем - если администратор, показываем панель
     if await is_admin(message.from_user.id):
         from handlers.admin import _build_admin_panel_text
         adm_lang = await get_user_lang(message.from_user.id)
@@ -176,17 +186,23 @@ async def msg_entering_name(message: Message, bot: Bot, state: FSMContext) -> No
             admin_photo = SECTION_PHOTOS.get("admin", WELCOME_PHOTO_URL)
             try:
                 new_msg = await bot.send_photo(
-                    chat_id=message.chat.id, photo=admin_photo,
-                    caption=admin_text, reply_markup=adm_kb, parse_mode="HTML",
+                    chat_id=message.chat.id,
+                    photo=admin_photo,
+                    caption=admin_text,
+                    reply_markup=adm_kb,
+                    parse_mode="HTML",
                 )
             except Exception:
                 new_msg = await bot.send_message(
-                    chat_id=message.chat.id, text=admin_text,
-                    reply_markup=adm_kb, parse_mode="HTML",
+                    chat_id=message.chat.id,
+                    text=admin_text,
+                    reply_markup=adm_kb,
+                    parse_mode="HTML",
                 )
             await save_last_msg_id(message.from_user.id, new_msg.message_id)
         return
 
+    # Если мастер (и не администратор)
     from bot_db import get_master_by_telegram_id
     from keyboards import master_panel_kb
     from handlers.master_panel import build_master_panel_text
@@ -204,6 +220,7 @@ async def msg_entering_name(message: Message, bot: Bot, state: FSMContext) -> No
             await save_last_msg_id(message.from_user.id, menu_msg_id)
         return
 
+    # Обычный клиент
     from bot_db import get_user_lang as _get_lang
     client_lang = await _get_lang(message.from_user.id)
     if client_lang == "en":
@@ -212,26 +229,34 @@ async def msg_entering_name(message: Message, bot: Bot, state: FSMContext) -> No
         greeting_text = f"✨ Приятно познакомиться, <b>{name}</b>!\n\nВыберите раздел 👇"
 
     if menu_msg_id:
+        # Редактируем caption фото-сообщения (фото остаётся, добавляем кнопки)
         await edit_menu(
             bot, message.chat.id, menu_msg_id,
             greeting_text, main_menu_kb(client_lang),
-            photo_url=None,
+            photo_url=None,  # фото не меняем
         )
         await save_last_msg_id(message.from_user.id, menu_msg_id)
     else:
         main_photo = SECTION_PHOTOS.get("main", WELCOME_PHOTO_URL)
         try:
             new_msg = await bot.send_photo(
-                chat_id=message.chat.id, photo=main_photo,
-                caption=greeting_text, reply_markup=main_menu_kb(client_lang), parse_mode="HTML",
+                chat_id=message.chat.id,
+                photo=main_photo,
+                caption=greeting_text,
+                reply_markup=main_menu_kb(client_lang),
+                parse_mode="HTML",
             )
         except Exception:
             new_msg = await bot.send_message(
-                chat_id=message.chat.id, text=greeting_text,
-                reply_markup=main_menu_kb(client_lang), parse_mode="HTML",
+                chat_id=message.chat.id,
+                text=greeting_text,
+                reply_markup=main_menu_kb(client_lang),
+                parse_mode="HTML",
             )
         await save_last_msg_id(message.from_user.id, new_msg.message_id)
 
+
+# ── GDPR callbacks ──────────────────────────────────────────────────────
 
 from aiogram import F as _F
 from aiogram.types import CallbackQuery
@@ -247,6 +272,7 @@ async def cb_gdpr_accept(callback: CallbackQuery, bot: Bot, state: FSMContext) -
     await mark_gdpr_accepted(user.id)
     await update_user_lang(user.id, lang)
 
+    # Уведомление администратору
     if ADMIN_ID and user.id != ADMIN_ID:
         try:
             from bot_db import get_system_lang
@@ -278,8 +304,10 @@ async def cb_gdpr_accept(callback: CallbackQuery, bot: Bot, state: FSMContext) -
                     f"└ Всего пользователей: <b>{count}</b>"
                 )
             await bot.send_message(
-                chat_id=ADMIN_ID, text=notify_text,
-                reply_markup=notify_kb, parse_mode="HTML",
+                chat_id=ADMIN_ID,
+                text=notify_text,
+                reply_markup=notify_kb,
+                parse_mode="HTML",
             )
         except Exception:
             pass
@@ -294,13 +322,15 @@ async def cb_gdpr_accept(callback: CallbackQuery, bot: Bot, state: FSMContext) -
     )
     try:
         await bot.edit_message_caption(
-            chat_id=callback.message.chat.id, message_id=callback.message.message_id,
+            chat_id=callback.message.chat.id,
+            message_id=callback.message.message_id,
             caption=ask_text, reply_markup=None, parse_mode="HTML",
         )
     except Exception:
         try:
             await bot.edit_message_text(
-                chat_id=callback.message.chat.id, message_id=callback.message.message_id,
+                chat_id=callback.message.chat.id,
+                message_id=callback.message.message_id,
                 text=ask_text, reply_markup=None, parse_mode="HTML",
             )
         except Exception:

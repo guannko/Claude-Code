@@ -45,7 +45,7 @@ logger = logging.getLogger(__name__)
 router = Router()
 
 
-# ── Вспомогательная: текст каталога категории ─────────────
+# ── Вспомогательная: текст каталога категории ─────────────────
 
 async def _build_services_text(category: str) -> str:
     cat = await get_category_by_key(category)
@@ -81,7 +81,7 @@ async def _build_services_text(category: str) -> str:
     return "\n".join(lines)
 
 
-# ── Главное меню ───────────────────────────────────────────
+# ── Главное меню ──────────────────────────────────────────────────────
 
 @router.callback_query(F.data == "menu:main")
 async def cb_main(callback: CallbackQuery, bot: Bot, state: FSMContext) -> None:
@@ -102,7 +102,7 @@ async def cb_main(callback: CallbackQuery, bot: Bot, state: FSMContext) -> None:
     await callback.answer()
 
 
-# ── Мастера: выбор категории ───────────────────────────────
+# ── Мастера: выбор категории ────────────────────────────────────
 
 @router.callback_query(F.data == "menu:masters")
 async def cb_masters(callback: CallbackQuery, bot: Bot, state: FSMContext) -> None:
@@ -116,7 +116,7 @@ async def cb_masters(callback: CallbackQuery, bot: Bot, state: FSMContext) -> No
     await callback.answer()
 
 
-# ── О салоне ───────────────────────────────────────────────
+# ── О салоне ────────────────────────────────────────────────────────
 
 @router.callback_query(F.data == "menu:about")
 async def cb_about(callback: CallbackQuery, bot: Bot) -> None:
@@ -141,7 +141,7 @@ async def cb_about(callback: CallbackQuery, bot: Bot) -> None:
     await callback.answer()
 
 
-# ── Услуги: главная (выбор категории) ─────────────────────
+# ── Услуги: главная (выбор категории) ───────────────────────
 
 @router.callback_query(F.data == "menu:services")
 async def cb_services(callback: CallbackQuery, bot: Bot) -> None:
@@ -155,7 +155,7 @@ async def cb_services(callback: CallbackQuery, bot: Bot) -> None:
     await callback.answer()
 
 
-# ── Услуги: конкретная категория (просмотр, без FSM) ───────
+# ── Услуги: конкретная категория (просмотр, без FSM) ─────────
 
 @router.callback_query(F.data.startswith("services:cat:"))
 async def cb_services_category(callback: CallbackQuery, bot: Bot) -> None:
@@ -170,7 +170,7 @@ async def cb_services_category(callback: CallbackQuery, bot: Bot) -> None:
     await callback.answer()
 
 
-# ── Мои записи ────────────────────────────────────────────
+# ── Мои записи ─────────────────────────────────────────────────
 
 @router.callback_query(F.data == "menu:my_bookings")
 async def cb_my_bookings(callback: CallbackQuery, bot: Bot) -> None:
@@ -216,7 +216,7 @@ async def cb_my_bookings(callback: CallbackQuery, bot: Bot) -> None:
     await callback.answer()
 
 
-# ── AI-чат: вход ──────────────────────────────────────────
+# ── AI-чат: вход ─────────────────────────────────────────────────
 
 @router.callback_query(F.data == "menu:ai_chat")
 async def cb_ai_chat_entry(callback: CallbackQuery, bot: Bot, state: FSMContext) -> None:
@@ -238,7 +238,7 @@ async def cb_ai_chat_entry(callback: CallbackQuery, bot: Bot, state: FSMContext)
     await callback.answer()
 
 
-# ── Профиль ────────────────────────────────────────────────
+# ── Профиль ────────────────────────────────────────────────────────
 
 @router.callback_query(F.data == "menu:profile")
 async def cb_profile(callback: CallbackQuery, bot: Bot) -> None:
@@ -317,7 +317,7 @@ async def msg_profile_birthdate(message: Message, state: FSMContext) -> None:
     await message.answer(f"✅ День рождения сохранён: {raw} 🎂\n\nМы обязательно поздравим вас!")
 
 
-# ── GDPR: удаление данных ─────────────────────────────────
+# ── GDPR: удаление данных ────────────────────────────────────
 
 @router.callback_query(F.data == "profile:delete_data")
 async def cb_profile_delete_data(callback: CallbackQuery, bot: Bot) -> None:
@@ -360,7 +360,7 @@ async def cb_profile_delete_confirm(callback: CallbackQuery, bot: Bot) -> None:
     await callback.answer("✅")
 
 
-# ── Быстрое переключение языка ────────────────────────────
+# ── Быстрое переключение языка ───────────────────────────────
 
 @router.callback_query(F.data.startswith("lang:toggle:"))
 async def cb_lang_toggle(callback: CallbackQuery, bot: Bot, state: FSMContext) -> None:
@@ -417,7 +417,7 @@ async def cb_lang_toggle(callback: CallbackQuery, bot: Bot, state: FSMContext) -
     await callback.answer(label)
 
 
-# ── Настройки ──────────────────────────────────────────────
+# ── Настройки ────────────────────────────────────────────────────────
 
 @router.callback_query(F.data == "menu:settings")
 async def cb_settings(callback: CallbackQuery, bot: Bot) -> None:
@@ -456,7 +456,7 @@ async def cb_lang_set(callback: CallbackQuery, bot: Bot) -> None:
     await callback.answer("✅")
 
 
-# ── Помощь ─────────────────────────────────────────────────
+# ── Помощь ────────────────────────────────────────────────────────────
 
 @router.callback_query(F.data == "menu:help")
 async def cb_help(callback: CallbackQuery, bot: Bot) -> None:
@@ -470,7 +470,12 @@ async def cb_help(callback: CallbackQuery, bot: Bot) -> None:
     await callback.answer()
 
 
-# ── Закрыть уведомление → обновить основное меню ───────────
+# ── Закрыть уведомление → обновить основное меню ─────────────────
+#
+# Используется когда бот отправляет клиенту отдельное текстовое
+# сообщение (подтверждение/отмена записи от админа).
+# Нажатие "В меню" удаляет это уведомление и обновляет
+# постоянное фото-меню (по last_msg_id из БД).
 
 @router.callback_query(F.data == "notify:dismiss")
 async def cb_notify_dismiss(callback: CallbackQuery, bot: Bot, state: FSMContext) -> None:

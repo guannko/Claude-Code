@@ -1,6 +1,7 @@
 """
 Обработчики отзывов.
 
+Клиент получает запрос отзыва на следующий день после визита (scheduler 10:00).
 callback_data:
   review:rate:{booking_id}:{rating}  — оценка 1-5
   review:skip:{booking_id}           — пропустить
@@ -58,6 +59,7 @@ async def cb_review_rate(callback: CallbackQuery, state: FSMContext) -> None:
         await callback.answer("Вы уже оставили отзыв.", show_alert=True)
         return
 
+    # Сохраняем оценку предварительно (без комментария)
     await create_review(booking_id, callback.from_user.id, booking.get("master_id", ""), rating)
 
     await state.set_state(ReviewStates.waiting_comment)
