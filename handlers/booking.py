@@ -21,7 +21,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 
 from config import ADMIN_ID
-from database import (
+from bot_db import (
     create_booking, get_user_lang, update_booking_status, get_booking,
     get_user_phone, update_user_phone, get_user, save_last_msg_id,
     get_db_service_by_id, get_db_services_by_category,
@@ -49,7 +49,7 @@ _MONTHS_GEN_RU = [
 ]
 
 
-# ── Вспомогательные функции ────────────────────────────────
+# ── Вспомогательные функции ─────────────────────────────────────────
 
 def _fmt_date(d: date_type) -> str:
     """Возвращает строку вида 'Пятница, 4 апреля'."""
@@ -63,7 +63,7 @@ def _cancel_kb():
     ])
 
 
-# ── Шаг 1: старт — выбор категории ────────────────────────
+# ── Шаг 1: старт — выбор категории ──────────────────────────
 
 @router.callback_query(F.data == "book:start")
 async def cb_book_start(callback: CallbackQuery, bot: Bot, state: FSMContext) -> None:
@@ -103,7 +103,7 @@ async def cb_book_start_with_category(callback: CallbackQuery, bot: Bot, state: 
     await callback.answer()
 
 
-# ── Шаг 2: выбрана категория — список услуг ───────────────
+# ── Шаг 2: выбрана категория — список услуг ───────────────────────
 
 @router.callback_query(BookingStates.choosing_category, F.data.startswith("services:cat:"))
 async def cb_book_choose_category(callback: CallbackQuery, bot: Bot, state: FSMContext) -> None:
@@ -122,7 +122,7 @@ async def cb_book_choose_category(callback: CallbackQuery, bot: Bot, state: FSMC
     await callback.answer()
 
 
-# ── Шаг 3: выбрана услуга — выбор мастера ─────────────────
+# ── Шаг 3: выбрана услуга — выбор мастера ─────────────────────
 
 @router.callback_query(BookingStates.choosing_service, F.data.startswith("services:item:"))
 async def cb_book_choose_service(callback: CallbackQuery, bot: Bot, state: FSMContext) -> None:
@@ -182,7 +182,7 @@ async def cb_book_choose_service(callback: CallbackQuery, bot: Bot, state: FSMCo
 
 
 async def _get_salon_phone() -> str:
-    from database import get_setting
+    from bot_db import get_setting
     return await get_setting("salon_phone", "+7 (495) 123-45-67")
 
 
@@ -212,7 +212,7 @@ async def _masters_with_schedule_kb(category: str, back_cb: str = None):
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
-# ── Назад из выбора мастера к выбору услуги ──────────────
+# ── Назад из выбора мастера к выбору услуги ────────────────────
 
 @router.callback_query(BookingStates.choosing_master, F.data.startswith("book:back_to_services:"))
 async def cb_book_back_to_services(callback: CallbackQuery, bot: Bot, state: FSMContext) -> None:
@@ -248,7 +248,7 @@ async def cb_book_back_to_master_from_service(callback: CallbackQuery, bot: Bot,
     await callback.answer()
 
 
-# ── Шаг 4: выбран мастер — показываем даты ───────────────
+# ── Шаг 4: выбран мастер — показываем даты ───────────────────
 
 @router.callback_query(BookingStates.choosing_master, F.data.startswith("book:master:"))
 async def cb_book_choose_master(callback: CallbackQuery, bot: Bot, state: FSMContext) -> None:
@@ -337,7 +337,7 @@ async def cb_book_choose_master(callback: CallbackQuery, bot: Bot, state: FSMCon
     await callback.answer()
 
 
-# ── Шаг 5: выбрана дата — показываем слоты ───────────────
+# ── Шаг 5: выбрана дата — показываем слоты ─────────────────────
 
 @router.callback_query(F.data.startswith("book:date:"))
 async def cb_book_choose_date(callback: CallbackQuery, bot: Bot, state: FSMContext) -> None:
@@ -387,7 +387,7 @@ async def cb_book_choose_date(callback: CallbackQuery, bot: Bot, state: FSMConte
     await callback.answer()
 
 
-# ── Назад к выбору даты ───────────────────────────────────
+# ── Назад к выбору даты ────────────────────────────────────────────────
 
 @router.callback_query(F.data.startswith("book:back:date:"))
 async def cb_back_to_dates(callback: CallbackQuery, bot: Bot, state: FSMContext) -> None:
@@ -412,7 +412,7 @@ async def cb_back_to_dates(callback: CallbackQuery, bot: Bot, state: FSMContext)
     await callback.answer()
 
 
-# ── Назад к выбору мастера ────────────────────────────────
+# ── Назад к выбору мастера ────────────────────────────────────────────
 
 @router.callback_query(F.data == "book:back:master")
 async def cb_back_to_master(callback: CallbackQuery, bot: Bot, state: FSMContext) -> None:
@@ -433,7 +433,7 @@ async def cb_back_to_master(callback: CallbackQuery, bot: Bot, state: FSMContext
     await callback.answer()
 
 
-# ── Шаг 6: выбран слот — запрашиваем телефон ─────────────
+# ── Шаг 6: выбран слот — запрашиваем телефон ───────────────────
 
 @router.callback_query(F.data.startswith("book:slot:"))
 async def cb_book_choose_slot(callback: CallbackQuery, bot: Bot, state: FSMContext) -> None:
@@ -532,7 +532,7 @@ async def cb_booking_change_phone(callback: CallbackQuery, bot: Bot, state: FSMC
     await callback.answer()
 
 
-# ── Шаг 7: получили телефон — показываем подтверждение ───
+# ── Шаг 7: получили телефон — показываем подтверждение ──────────────
 
 @router.message(BookingStates.entering_phone)
 async def msg_booking_phone(message: Message, bot: Bot, state: FSMContext) -> None:
@@ -580,7 +580,7 @@ async def msg_booking_phone(message: Message, bot: Bot, state: FSMContext) -> No
     )
 
 
-# ── Шаг 8а: подтверждение — сохраняем в БД ──────────────
+# ── Шаг 8а: подтверждение — сохраняем в БД ──────────────────────
 
 @router.callback_query(BookingStates.confirming, F.data == "booking:confirm")
 async def cb_booking_confirm(callback: CallbackQuery, bot: Bot, state: FSMContext) -> None:
@@ -632,7 +632,7 @@ async def cb_booking_confirm(callback: CallbackQuery, bot: Bot, state: FSMContex
 
     # Уведомляем мастера если привязан TG
     try:
-        from database import get_master
+        from bot_db import get_master
         master_db = await get_master(data.get("master_id", ""))
         if master_db and master_db.get("telegram_user_id"):
             await bot.send_message(
@@ -651,7 +651,7 @@ async def cb_booking_confirm(callback: CallbackQuery, bot: Bot, state: FSMContex
 
     # Лояльность: увеличить счётчик посещений
     try:
-        from database import increment_visit_count
+        from bot_db import increment_visit_count
         visit_count = await increment_visit_count(user.id)
         if visit_count % 5 == 0:
             if lang == "en":
@@ -691,7 +691,7 @@ async def cb_booking_confirm(callback: CallbackQuery, bot: Bot, state: FSMContex
     # Уведомление администратору — всегда на системном языке
     if ADMIN_ID:
         try:
-            from database import get_system_lang
+            from bot_db import get_system_lang
             sys_lang = await get_system_lang()
             admin_text = t(
                 "admin_new_booking", sys_lang,
@@ -713,13 +713,13 @@ async def cb_booking_confirm(callback: CallbackQuery, bot: Bot, state: FSMContex
             logger.warning("Не удалось отправить уведомление о записи: %s", e)
 
 
-# ── Шаг 8б: отмена записи ───────────────────────────────
+# ── Шаг 8б: отмена записи ───────────────────────────────────────────
 
 @router.callback_query(BookingStates.confirming, F.data == "booking:cancel")
 async def cb_booking_cancel(callback: CallbackQuery, bot: Bot, state: FSMContext) -> None:
     await state.clear()
     lang = await get_user_lang(callback.from_user.id)
-    from database import get_setting
+    from bot_db import get_setting
     salon_name = await get_setting("salon_name", "Салон красоты")
     await edit_menu(
         bot, callback.message.chat.id, callback.message.message_id,
@@ -730,13 +730,13 @@ async def cb_booking_cancel(callback: CallbackQuery, bot: Bot, state: FSMContext
     await callback.answer(t("booking_cancelled", lang))
 
 
-# ── Отмена в любом шаге FSM ──────────────────────────────
+# ── Отмена в любом шаге FSM ──────────────────────────────────────
 
 @router.callback_query(F.data == "booking:cancel")
 async def cb_booking_cancel_any(callback: CallbackQuery, bot: Bot, state: FSMContext) -> None:
     await state.clear()
     lang = await get_user_lang(callback.from_user.id)
-    from database import get_setting
+    from bot_db import get_setting
     salon_name = await get_setting("salon_name", "Салон красоты")
     await edit_menu(
         bot, callback.message.chat.id, callback.message.message_id,
@@ -747,7 +747,7 @@ async def cb_booking_cancel_any(callback: CallbackQuery, bot: Bot, state: FSMCon
     await callback.answer()
 
 
-# ── Управление записями из уведомления (для админа) ──────
+# ── Управление записями из уведомления (для админа) ─────────────
 
 @router.callback_query(F.data.startswith("admin_booking:"))
 async def cb_admin_booking_action(callback: CallbackQuery, bot: Bot) -> None:
@@ -768,7 +768,7 @@ async def cb_admin_booking_action(callback: CallbackQuery, bot: Bot) -> None:
         await update_booking_status(booking_id, "cancelled")
         status_text = "❌ Запись отменена"
 
-    # ── Уведомляем клиента ────────────────────────────────
+    # ── Уведомляем клиента ─────────────────────────────────────────
     booking = await get_booking(booking_id)
     if booking:
         client_id = booking["user_id"]
@@ -805,7 +805,7 @@ async def cb_admin_booking_action(callback: CallbackQuery, bot: Bot) -> None:
         except Exception as e:
             logger.warning("Не удалось уведомить клиента %s: %s", client_id, e)
 
-    # ── Обновляем сообщение у админа ─────────────────────
+    # ── Обновляем сообщение у админа ───────────────────────
     try:
         original = callback.message.text or ""
         await callback.message.edit_text(
@@ -818,7 +818,7 @@ async def cb_admin_booking_action(callback: CallbackQuery, bot: Bot) -> None:
     await callback.answer(status_text)
 
 
-# ── Возврат в главное меню из FSM ────────────────────────
+# ── Возврат в главное меню из FSM ──────────────────────────────────
 
 @router.callback_query(BookingStates.choosing_category, F.data == "menu:main")
 @router.callback_query(BookingStates.choosing_service, F.data == "menu:main")
@@ -829,7 +829,7 @@ async def cb_admin_booking_action(callback: CallbackQuery, bot: Bot) -> None:
 async def cb_fsm_back_to_main(callback: CallbackQuery, bot: Bot, state: FSMContext) -> None:
     await state.clear()
     lang = await get_user_lang(callback.from_user.id)
-    from database import get_setting
+    from bot_db import get_setting
     salon_name = await get_setting("salon_name", "Салон красоты")
     await edit_menu(
         bot, callback.message.chat.id, callback.message.message_id,
