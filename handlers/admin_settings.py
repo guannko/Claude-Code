@@ -1,6 +1,6 @@
 """
-Настройки бизнеса для администратора.
-Позволяет менять название, адрес, кнопки меню и т.д. прямо из бота.
+Настройки салона для администратора.
+Позволяет менять название, адрес, телефон, валюту и т.д. прямо из бота.
 """
 
 import logging
@@ -12,8 +12,7 @@ from aiogram.types import (
 from aiogram.fsm.context import FSMContext
 from aiogram.filters import StateFilter
 
-from database import get_setting, set_setting, get_all_settings, log_action
-from database.license import activate_license
+from bot_db import get_setting, set_setting, get_all_settings, log_action
 from services.permissions import is_admin
 from services.sender import edit_menu, send_menu
 from states import AdminSettingsStates
@@ -22,14 +21,10 @@ from data.salon import SECTION_PHOTOS
 logger = logging.getLogger(__name__)
 router = Router()
 
-_LICENSE_KEY = "__license__"
-
 # ── Ключи настроек с отображаемыми именами ────────────────
 
 SETTINGS_META = [
-    # Бизнес
-    ("salon_name",            "🏷 Название бизнеса"),
-    ("salon_description",     "📝 Описание (1-2 строки)"),
+    ("salon_name",            "🏷 Название салона"),
     ("salon_address",         "📍 Адрес"),
     ("salon_metro",           "🚇 Метро / ориентир"),
     ("salon_phone",           "📞 Телефон"),
@@ -38,36 +33,28 @@ SETTINGS_META = [
     ("salon_hours_weekends",  "⏰ Часы (выходные)"),
     ("salon_since",           "📅 Год основания"),
     ("currency",              "💱 Символ валюты (₽/€/$)"),
-    # Специалисты
-    ("specialist_label",      "👤 Специалист (ед.ч.)"),
-    ("specialists_label",     "👥 Специалисты (кнопка меню)"),
-    # Кнопки клиентского меню
-    ("btn_services",          "🔘 Кнопка: Услуги и цены"),
-    ("btn_book",              "🔘 Кнопка: Записаться"),
-    ("btn_masters",           "🔘 Кнопка: Специалисты"),
-    ("btn_gallery",           "🔘 Кнопка: Галерея"),
-    ("btn_ai",                "🔘 Кнопка: AI-помощник"),
-    ("btn_about",             "🔘 Кнопка: О нас"),
-    ("btn_mybookings",        "🔘 Кнопка: Мои записи"),
+    # Специалист
+    ("specialist_label",  "👤 Специалист (ед.ч.)"),
+    ("specialists_label", "👥 Специалисты (кнопка меню)"),
     # Фото секций (URL)
-    ("photo_main",            "🖼 Фото: главная"),
-    ("photo_services",        "🖼 Фото: услуги"),
-    ("photo_masters",         "🖼 Фото: специалисты"),
-    ("photo_booking",         "🖼 Фото: запись"),
-    ("photo_about",           "🖼 Фото: о нас"),
-    ("photo_admin",           "🖼 Фото: админ-панель"),
+    ("photo_main",        "🖼 Фото: главная"),
+    ("photo_services",    "🖼 Фото: услуги"),
+    ("photo_masters",     "🖼 Фото: специалисты"),
+    ("photo_booking",     "🖼 Фото: запись"),
+    ("photo_about",       "🖼 Фото: о нас"),
+    ("photo_admin",       "🖼 Фото: админ-панель"),
 ]
 
 
 async def _build_settings_text(settings: dict) -> str:
-    lines = ["⚙️ <b>Настройки бизнеса</b>\n"]
+    lines = ["⚙️ <b>Настройки салона</b>\n"]
     for key, label in SETTINGS_META:
         val = settings.get(key, "—")
-        lines.append(f"  {label}: <code>{val or '—'}</code>")
+        lines.append(f"  {label}: <code>{val}</code>")
     return "\n".join(lines)
 
 
-def _settings_kb() -> InlineKeyboardMarkup:
+def _settings_kb(is_owner_flag: bool = False) -> InlineKeyboardMarkup:
     rows = []
     for key, label in SETTINGS_META:
         rows.append([InlineKeyboardButton(
@@ -78,6 +65,8 @@ def _settings_kb() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
+# ── Показать меню настроек ────────────────────────────────
+
 @router.callback_query(F.data == "adm_cfg:menu")
 async def cb_adm_cfg_menu(callback: CallbackQuery, bot: Bot, state: FSMContext) -> None:
     if not await is_admin(callback.from_user.id):
@@ -86,13 +75,16 @@ async def cb_adm_cfg_menu(callback: CallbackQuery, bot: Bot, state: FSMContext) 
     await state.clear()
     settings = await get_all_settings()
     text = await _build_settings_text(settings)
+    from services.permissions import is_owner as _is_owner
     await edit_menu(
         bot, callback.message.chat.id, callback.message.message_id,
-        text, _settings_kb(),
+        text, _settings_kb(_is_owner(callback.from_user.id)),
         photo_url=SECTION_PHOTOS.get("admin"),
     )
     await callback.answer()
 
+
+# ── Начать редактирование одной настройки ─────────────────
 
 @router.callback_query(F.data.startswith("adm_cfg:edit:"))
 async def cb_adm_cfg_edit(callback: CallbackQuery, bot: Bot, state: FSMContext) -> None:
@@ -117,10 +109,6 @@ async def cb_adm_cfg_edit(callback: CallbackQuery, bot: Bot, state: FSMContext) 
         hint = "\n\n<i>Пример: Пн–Пт: 10:00 – 21:00</i>"
     elif key == "salon_since":
         hint = "\n\n<i>Пример: 2018</i>"
-    elif key.startswith("btn_"):
-        hint = "\n\n<i>Введите новый текст кнопки (эмодзи + название)</i>"
-    elif key.startswith("photo_"):
-        hint = "\n\n<i>Вставьте прямую ссылку на изображение (https://...)</i>"
 
     await edit_menu(
         bot, callback.message.chat.id, callback.message.message_id,
@@ -132,6 +120,8 @@ async def cb_adm_cfg_edit(callback: CallbackQuery, bot: Bot, state: FSMContext) 
     )
     await callback.answer()
 
+
+# ── Получить новое значение ───────────────────────────────
 
 @router.message(StateFilter(AdminSettingsStates.entering_value))
 async def msg_adm_cfg_value(message: Message, bot: Bot, state: FSMContext) -> None:
@@ -151,35 +141,14 @@ async def msg_adm_cfg_value(message: Message, bot: Bot, state: FSMContext) -> No
     msg_id = data.get("cfg_msg_id")
     await state.clear()
 
+    await set_setting(key, new_value)
+    await log_action(message.from_user.id, "setting_change", target=key,
+                     details=f"→ {new_value[:80]}")
+
     try:
         await message.delete()
     except Exception:
         pass
-
-    # ── Специальная обработка: лицензионный ключ ──────────
-    if key == _LICENSE_KEY:
-        result = await activate_license(new_value)
-        if result["ok"]:
-            text = "✅ <b>Лицензия активирована!</b>\n\nСпасибо за покупку Studio ONE 🎉"
-        else:
-            text = f"❌ <b>Ошибка:</b> {result['error']}"
-        kb = InlineKeyboardMarkup(inline_keyboard=[[
-            InlineKeyboardButton(text="◀️ К лицензии", callback_data="license:menu"),
-        ]])
-        if msg_id:
-            try:
-                await edit_menu(bot, message.chat.id, msg_id, text, kb,
-                                photo_url=SECTION_PHOTOS.get("admin"))
-                return
-            except Exception:
-                pass
-        await bot.send_message(message.chat.id, text, reply_markup=kb, parse_mode="HTML")
-        return
-
-    # ── Обычная настройка ─────────────────────────────────
-    await set_setting(key, new_value)
-    await log_action(message.from_user.id, "setting_change", target=key,
-                     details=f"→ {new_value[:80]}")
 
     label = dict(SETTINGS_META).get(key, key)
     settings = await get_all_settings()
@@ -197,6 +166,7 @@ async def msg_adm_cfg_value(message: Message, bot: Bot, state: FSMContext) -> No
         except Exception:
             pass
 
+    # Fallback — отправить новое сообщение
     try:
         new_msg = await bot.send_photo(
             chat_id=message.chat.id,
@@ -212,5 +182,5 @@ async def msg_adm_cfg_value(message: Message, bot: Bot, state: FSMContext) -> No
             reply_markup=_settings_kb(),
             parse_mode="HTML",
         )
-    from database import save_last_msg_id
+    from bot_db import save_last_msg_id
     await save_last_msg_id(message.from_user.id, new_msg.message_id)

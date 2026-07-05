@@ -13,7 +13,7 @@ from aiogram.types import CallbackQuery, Message, InlineKeyboardMarkup, InlineKe
 from aiogram.fsm.context import FSMContext
 
 from config import GROQ_API_KEY
-from database import get_user_lang, get_setting, get_categories, get_db_services_by_category, get_masters_by_category
+from bot_db import get_user_lang, get_setting, get_categories, get_db_services_by_category, get_masters_by_category
 from services.sender import edit_menu
 from states import AiChatStates
 from texts import t
@@ -120,7 +120,7 @@ def _ai_answer_kb() -> InlineKeyboardMarkup:
 @router.callback_query(F.data == "ai:back")
 async def cb_ai_back(callback: CallbackQuery, bot: Bot, state: FSMContext) -> None:
     from keyboards import main_menu_kb, main_menu_with_admin_kb
-    from database import get_setting
+    from bot_db import get_setting
     from services.permissions import is_admin as _is_admin
     await state.clear()
     lang = await get_user_lang(callback.from_user.id)
