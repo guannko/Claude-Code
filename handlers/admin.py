@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 router = Router()
 
 
-# ── Вспомогательные функции ─────────────────────────────
+# ── Вспомогательные функции ─────────────────────────────────
 
 def _admin_panel_kb(user_id: int) -> InlineKeyboardMarkup:
     rows = [
@@ -113,7 +113,7 @@ async def _build_admin_panel_text(lang: str = "ru") -> str:
         )
 
 
-# ── Фото-панель: главный экран ──────────────────────────
+# ── Фото-панель: главный экран ──────────────────────────────
 
 @router.callback_query(F.data == "adm:panel")
 async def cb_adm_panel(callback: CallbackQuery, bot: Bot, state: FSMContext) -> None:
@@ -132,7 +132,7 @@ async def cb_adm_panel(callback: CallbackQuery, bot: Bot, state: FSMContext) -> 
     await callback.answer()
 
 
-# ── Фото-панель: клиентское меню для админа ─────────────
+# ── Фото-панель: клиентское меню для админа ─────────────────
 
 @router.callback_query(F.data == "adm:client_view")
 async def cb_adm_client_view(callback: CallbackQuery, bot: Bot, state: FSMContext) -> None:
@@ -156,7 +156,7 @@ async def cb_adm_client_view(callback: CallbackQuery, bot: Bot, state: FSMContex
     await callback.answer()
 
 
-# ── Фото-панель: новые записи ───────────────────────
+# ── Фото-панель: новые записи ───────────────────────────────
 
 @router.callback_query(F.data == "adm:bookings_new")
 async def cb_adm_bookings_new(callback: CallbackQuery, bot: Bot) -> None:
@@ -187,7 +187,7 @@ async def cb_adm_bookings_new(callback: CallbackQuery, bot: Bot) -> None:
     await callback.answer()
 
 
-# ── Фото-панель: все записи ──────────────────────────
+# ── Фото-панель: все записи ─────────────────────────────────
 
 @router.callback_query(F.data == "adm:bookings_all")
 async def cb_adm_bookings_all(callback: CallbackQuery, bot: Bot) -> None:
@@ -217,7 +217,7 @@ async def cb_adm_bookings_all(callback: CallbackQuery, bot: Bot) -> None:
     await callback.answer()
 
 
-# ── Фото-панель: клиенты ─────────────────────────────
+# ── Фото-панель: клиенты ────────────────────────────────────
 
 @router.callback_query(F.data == "adm:users")
 async def cb_adm_users(callback: CallbackQuery, bot: Bot) -> None:
@@ -321,7 +321,7 @@ async def cb_adm_user_card(callback: CallbackQuery, bot: Bot) -> None:
     await callback.answer()
 
 
-# ── Фото-панель: статистика ─────────────────────────
+# ── Фото-панель: статистика ─────────────────────────────────
 
 @router.callback_query(F.data == "adm:stats")
 async def cb_adm_stats(callback: CallbackQuery, bot: Bot) -> None:
@@ -341,7 +341,7 @@ async def cb_adm_stats(callback: CallbackQuery, bot: Bot) -> None:
     await callback.answer()
 
 
-# ── История действий ────────────────────────────────────
+# ── История действий ────────────────────────────────────────
 
 @router.callback_query(F.data == "adm:history")
 async def cb_adm_history(callback: CallbackQuery, bot: Bot) -> None:
@@ -373,7 +373,7 @@ async def cb_adm_history(callback: CallbackQuery, bot: Bot) -> None:
     await callback.answer()
 
 
-# ── Команда /admin ─────────────────────────────────────
+# ── Команда /admin ──────────────────────────────────────────
 
 @router.message(Command("admin"))
 async def cmd_admin(message: Message) -> None:
@@ -390,7 +390,7 @@ async def cmd_admin(message: Message) -> None:
         pass
 
 
-# ── Callback: обновить панель ─────────────────────────
+# ── Callback: обновить панель ───────────────────────────────
 
 @router.callback_query(F.data == "admin:refresh")
 async def cb_admin_refresh(callback: CallbackQuery) -> None:
@@ -406,7 +406,7 @@ async def cb_admin_refresh(callback: CallbackQuery) -> None:
     await callback.answer("✅ Обновлено")
 
 
-# ── Callback: список пользователей ─────────────────
+# ── Callback: список пользователей ─────────────────────────
 
 @router.callback_query(F.data == "admin:users")
 async def cb_admin_users(callback: CallbackQuery) -> None:
@@ -431,7 +431,7 @@ async def cb_admin_users(callback: CallbackQuery) -> None:
     await callback.answer()
 
 
-# ── Callback: список записей ─────────────────────────
+# ── Callback: список записей ────────────────────────────────
 
 @router.callback_query(F.data == "admin:bookings")
 async def cb_admin_bookings(callback: CallbackQuery) -> None:
@@ -459,7 +459,7 @@ async def cb_admin_bookings(callback: CallbackQuery) -> None:
     await callback.answer()
 
 
-# ── Callback: закрыть панель ──────────────────────────
+# ── Callback: закрыть панель ────────────────────────────────
 
 @router.callback_query(F.data == "admin:close")
 async def cb_admin_close(callback: CallbackQuery) -> None:
@@ -474,9 +474,9 @@ async def cb_admin_close(callback: CallbackQuery) -> None:
     await callback.answer()
 
 
-# ══════════════════════════════════════════════════════
+# ══════════════════════════════════════════════════════════
 #  Управление администраторами (только для владельца)
-# ══════════════════════════════════════════════════════
+# ══════════════════════════════════════════════════════════
 
 def _admins_list_kb(admins: list[dict]) -> InlineKeyboardMarkup:
     rows = []
@@ -682,7 +682,7 @@ async def cb_admin_remove(callback: CallbackQuery) -> None:
     await callback.answer("✅ Удалён")
 
 
-# ── Отмена FSM при нажатии "Назад" ─────────────────
+# ── Отмена FSM при нажатии "Назад" ─────────────────────────
 
 @router.callback_query(AdminStates.entering_admin_id, F.data == "admin:admins")
 async def cb_admin_cancel_add(callback: CallbackQuery, state: FSMContext) -> None:
