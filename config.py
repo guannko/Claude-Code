@@ -14,7 +14,6 @@ ADMIN_ID: int = int(os.getenv("ADMIN_ID", "0"))
 
 # ── Настройки приложения ────────────────────────────
 DEFAULT_LANG: str = os.getenv("DEFAULT_LANG", "ru")
-DB_PATH: str = "database/bot.db"
 LOG_PATH: str = "logs/bot.log"
 
 # ── Groq AI ───────────────────────────────────────────
@@ -23,7 +22,7 @@ GROQ_API_KEY: str = os.getenv("GROQ_API_KEY", "")
 # ── Приветственное фото ─────────────────────────────────
 WELCOME_PHOTO_URL: str = os.getenv("WELCOME_PHOTO_URL", "")
 
-# ── Supabase (heartbeat → админка) ──────────────────────
+# ── Supabase ──────────────────────────────────────────────
 SUPABASE_URL: str = os.getenv("SUPABASE_URL", "")
 SUPABASE_KEY: str = os.getenv("SUPABASE_KEY", "")
 BOT_ID: str = os.getenv("BOT_ID", "brain_index_bot")

@@ -1,242 +1,39 @@
 """
 Все операции с базой данных — только здесь.
-Используем aiosqlite для асинхронной работы.
+Supabase PostgreSQL вместо SQLite. Функции сохраняют те же сигнатуры.
 """
 
-import aiosqlite
 import logging
-from config import DB_PATH
+from typing import Any
+from supabase import acreate_client, AsyncClient
+from config import SUPABASE_URL, SUPABASE_KEY
 
 logger = logging.getLogger(__name__)
 
+_client: AsyncClient | None = None
+
+
+async def _db() -> AsyncClient:
+    global _client
+    if _client is None:
+        _client = await acreate_client(SUPABASE_URL, SUPABASE_KEY)
+    return _client
+
 
 # ══════════════════════════════════════════════════════════
-#  Инициализация БД
+#  Инициализация (seed при первом запуске)
 # ══════════════════════════════════════════════════════════
 
 async def init_db() -> None:
-    """Создать таблицы если не существуют. Вызывается при старте бота."""
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute("""
-            CREATE TABLE IF NOT EXISTS users (
-                user_id     INTEGER PRIMARY KEY,
-                username    TEXT,
-                full_name   TEXT,
-                lang        TEXT    DEFAULT 'ru',
-                last_msg_id INTEGER DEFAULT NULL,
-                created_at  TEXT    DEFAULT (datetime('now'))
-            )
-        """)
-        # Миграция: добавить колонку если БД уже существует
-        try:
-            await db.execute("ALTER TABLE users ADD COLUMN last_msg_id INTEGER DEFAULT NULL")
-        except Exception:
-            pass  # колонка уже есть
-        try:
-            await db.execute("ALTER TABLE users ADD COLUMN phone TEXT DEFAULT NULL")
-        except Exception:
-            pass  # колонка уже есть
-        try:
-            await db.execute("ALTER TABLE users ADD COLUMN last_photo_msg_id INTEGER DEFAULT NULL")
-        except Exception:
-            pass  # колонка уже есть
-        # ── Записи на приём ───────────────────────────────
-        await db.execute("""
-            CREATE TABLE IF NOT EXISTS bookings (
-                id          INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id     INTEGER,
-                user_name   TEXT,
-                username    TEXT,
-                service     TEXT,
-                service_id  TEXT,
-                master      TEXT,
-                master_id   TEXT,
-                date        TEXT,
-                time_start  TEXT,
-                duration    INTEGER,
-                date_time   TEXT,
-                phone       TEXT,
-                status      TEXT DEFAULT 'new',
-                created_at  TEXT DEFAULT (datetime('now'))
-            )
-        """)
-        # Миграция: добавить новые колонки если БД уже существует
-        for col_def in [
-            "ALTER TABLE bookings ADD COLUMN username TEXT",
-            "ALTER TABLE bookings ADD COLUMN service_id TEXT",
-            "ALTER TABLE bookings ADD COLUMN master_id TEXT",
-            "ALTER TABLE bookings ADD COLUMN date TEXT",
-            "ALTER TABLE bookings ADD COLUMN time_start TEXT",
-            "ALTER TABLE bookings ADD COLUMN duration INTEGER",
-        ]:
-            try:
-                await db.execute(col_def)
-            except Exception:
-                pass  # колонка уже есть
-        # ── Расписание мастеров ───────────────────────────
-        await db.execute("""
-            CREATE TABLE IF NOT EXISTS master_schedules (
-                master_id   TEXT,
-                day_of_week INTEGER,
-                start_time  TEXT,
-                end_time    TEXT,
-                is_working  INTEGER DEFAULT 1,
-                PRIMARY KEY (master_id, day_of_week)
-            )
-        """)
-        await db.execute("""
-            CREATE TABLE IF NOT EXISTS master_dayoffs (
-                id          INTEGER PRIMARY KEY AUTOINCREMENT,
-                master_id   TEXT,
-                date        TEXT,
-                reason      TEXT DEFAULT '',
-                created_at  TEXT DEFAULT (datetime('now'))
-            )
-        """)
-        # ── Мастера (профили) ─────────────────────────────
-        await db.execute("""
-            CREATE TABLE IF NOT EXISTS masters (
-                master_id        TEXT PRIMARY KEY,
-                name             TEXT,
-                category         TEXT,
-                description      TEXT DEFAULT '',
-                telegram_user_id INTEGER DEFAULT NULL,
-                is_active        INTEGER DEFAULT 1
-            )
-        """)
-        # Миграция: добавить колонку photo_file_id
-        try:
-            await db.execute("ALTER TABLE masters ADD COLUMN photo_file_id TEXT DEFAULT NULL")
-        except Exception:
-            pass  # колонка уже есть
-        # ── Администраторы ────────────────────────────────
-        await db.execute("""
-            CREATE TABLE IF NOT EXISTS admins (
-                user_id    INTEGER PRIMARY KEY,
-                username   TEXT DEFAULT '',
-                full_name  TEXT DEFAULT '',
-                added_by   INTEGER,
-                created_at TEXT DEFAULT (datetime('now'))
-            )
-        """)
-        # ── Расширение пользователей (лояльность + дни рождения) ──
-        for col_def in [
-            "ALTER TABLE users ADD COLUMN visit_count INTEGER DEFAULT 0",
-            "ALTER TABLE users ADD COLUMN birthdate TEXT DEFAULT NULL",
-        ]:
-            try:
-                await db.execute(col_def)
-            except Exception:
-                pass
-        # ── Расширение записей (посещаемость + запрос отзыва) ──
-        for col_def in [
-            "ALTER TABLE bookings ADD COLUMN attended INTEGER DEFAULT NULL",
-            "ALTER TABLE bookings ADD COLUMN review_requested INTEGER DEFAULT 0",
-        ]:
-            try:
-                await db.execute(col_def)
-            except Exception:
-                pass
-        # ── Отзывы ───────────────────────────────────────
-        await db.execute("""
-            CREATE TABLE IF NOT EXISTS reviews (
-                id          INTEGER PRIMARY KEY AUTOINCREMENT,
-                booking_id  INTEGER UNIQUE,
-                user_id     INTEGER,
-                master_id   TEXT,
-                rating      INTEGER,
-                comment     TEXT DEFAULT '',
-                created_at  TEXT DEFAULT (datetime('now'))
-            )
-        """)
-        # ── Галерея работ ─────────────────────────────────
-        await db.execute("""
-            CREATE TABLE IF NOT EXISTS gallery (
-                id          INTEGER PRIMARY KEY AUTOINCREMENT,
-                master_id   TEXT DEFAULT '',
-                category    TEXT DEFAULT '',
-                file_id     TEXT,
-                caption     TEXT DEFAULT '',
-                created_at  TEXT DEFAULT (datetime('now'))
-            )
-        """)
-        # ── Заметки мастера о клиентах ────────────────────
-        await db.execute("""
-            CREATE TABLE IF NOT EXISTS client_notes (
-                id              INTEGER PRIMARY KEY AUTOINCREMENT,
-                master_id       TEXT,
-                client_user_id  INTEGER,
-                note            TEXT DEFAULT '',
-                updated_at      TEXT DEFAULT (datetime('now')),
-                UNIQUE(master_id, client_user_id)
-            )
-        """)
-        # ── GDPR согласие ─────────────────────────────────
-        try:
-            await db.execute("ALTER TABLE users ADD COLUMN gdpr_accepted INTEGER DEFAULT 0")
-        except Exception:
-            pass
-        # ── Настройки салона ──────────────────────────────
-        await db.execute("""
-            CREATE TABLE IF NOT EXISTS salon_settings (
-                key        TEXT PRIMARY KEY,
-                value      TEXT DEFAULT ''
-            )
-        """)
-        # ── Кастомные слоты мастера на день ───────────────
-        # Если для даты есть хотя бы один кастомный слот,
-        # автогенерация НЕ используется — только эти слоты.
-        await db.execute("""
-            CREATE TABLE IF NOT EXISTS master_custom_slots (
-                id          INTEGER PRIMARY KEY AUTOINCREMENT,
-                master_id   TEXT,
-                date        TEXT,
-                time_start  TEXT,
-                created_at  TEXT DEFAULT (datetime('now')),
-                UNIQUE(master_id, date, time_start)
-            )
-        """)
-        # ── Лог действий ──────────────────────────────────
-        await db.execute("""
-            CREATE TABLE IF NOT EXISTS audit_log (
-                id          INTEGER PRIMARY KEY AUTOINCREMENT,
-                created_at  TEXT DEFAULT (datetime('now', 'localtime')),
-                user_id     INTEGER,
-                action      TEXT,
-                target      TEXT DEFAULT '',
-                status      TEXT DEFAULT 'ok',
-                details     TEXT DEFAULT ''
-            )
-        """)
-        # ── Категории услуг ───────────────────────────────
-        await db.execute("""
-            CREATE TABLE IF NOT EXISTS service_categories (
-                cat_key     TEXT PRIMARY KEY,
-                title       TEXT NOT NULL,
-                sort_order  INTEGER DEFAULT 0,
-                is_active   INTEGER DEFAULT 1
-            )
-        """)
-        # ── Услуги ────────────────────────────────────────
-        await db.execute("""
-            CREATE TABLE IF NOT EXISTS services (
-                id          INTEGER PRIMARY KEY AUTOINCREMENT,
-                service_id  TEXT UNIQUE NOT NULL,
-                category    TEXT NOT NULL,
-                name        TEXT NOT NULL,
-                price       INTEGER NOT NULL DEFAULT 0,
-                duration    INTEGER NOT NULL DEFAULT 60,
-                sort_order  INTEGER DEFAULT 0,
-                is_active   INTEGER DEFAULT 1
-            )
-        """)
-        await db.commit()
-    logger.info("База данных инициализирована")
+    """Инициализация — seed данных если таблицы пустые."""
+    logger.info("Подключение к Supabase...")
+    await _db()
     await seed_master_schedules()
     await seed_masters()
     await seed_master_photos()
     await seed_salon_settings()
     await seed_services()
+    logger.info("Supabase инициализирован")
 
 
 # ══════════════════════════════════════════════════════════
@@ -244,366 +41,236 @@ async def init_db() -> None:
 # ══════════════════════════════════════════════════════════
 
 async def get_user(user_id: int) -> dict | None:
-    """Получить пользователя по ID. Возвращает dict или None."""
-    async with aiosqlite.connect(DB_PATH) as db:
-        db.row_factory = aiosqlite.Row
-        async with db.execute(
-            "SELECT * FROM users WHERE user_id = ?", (user_id,)
-        ) as cursor:
-            row = await cursor.fetchone()
-            return dict(row) if row else None
+    db = await _db()
+    res = await db.table("bot_users").select("*").eq("user_id", user_id).maybe_single().execute()
+    return res.data
 
 
 async def register_user(user_id: int, username: str, full_name: str, lang: str) -> None:
-    """Зарегистрировать нового пользователя (INSERT OR IGNORE)."""
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute(
-            """
-            INSERT OR IGNORE INTO users (user_id, username, full_name, lang)
-            VALUES (?, ?, ?, ?)
-            """,
-            (user_id, username, full_name, lang),
-        )
-        await db.commit()
+    db = await _db()
+    try:
+        await db.table("bot_users").insert({
+            "user_id": user_id, "username": username,
+            "full_name": full_name, "lang": lang,
+        }).execute()
+    except Exception:
+        pass  # уже существует
 
 
 async def update_user_lang(user_id: int, lang: str) -> None:
-    """Обновить язык пользователя."""
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute(
-            "UPDATE users SET lang = ? WHERE user_id = ?",
-            (lang, user_id),
-        )
-        await db.commit()
+    db = await _db()
+    await db.table("bot_users").update({"lang": lang}).eq("user_id", user_id).execute()
 
 
 async def get_user_lang(user_id: int) -> str:
-    """Быстро получить язык пользователя."""
     user = await get_user(user_id)
     return user["lang"] if user else "ru"
 
 
 async def update_user_name(user_id: int, full_name: str) -> None:
-    """Обновить имя пользователя (после регистрации)."""
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute(
-            "UPDATE users SET full_name = ? WHERE user_id = ?",
-            (full_name, user_id),
-        )
-        await db.commit()
+    db = await _db()
+    await db.table("bot_users").update({"full_name": full_name}).eq("user_id", user_id).execute()
 
 
 async def update_user_phone(user_id: int, phone: str) -> None:
-    """Сохранить телефон пользователя для будущих записей."""
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute(
-            "UPDATE users SET phone = ? WHERE user_id = ?",
-            (phone, user_id),
-        )
-        await db.commit()
+    db = await _db()
+    await db.table("bot_users").update({"phone": phone}).eq("user_id", user_id).execute()
 
 
 async def get_user_phone(user_id: int) -> str | None:
-    """Получить сохранённый телефон пользователя."""
     user = await get_user(user_id)
     return user.get("phone") if user else None
 
 
-# ══════════════════════════════════════════════════════════
-#  Последнее сообщение бота (для чистого UX — одно окно)
-# ══════════════════════════════════════════════════════════
-
 async def get_last_photo_msg_id(user_id: int) -> int | None:
-    """Получить ID последнего фото-сообщения бота."""
     user = await get_user(user_id)
     return user.get("last_photo_msg_id") if user else None
 
 
 async def save_last_photo_msg_id(user_id: int, msg_id: int) -> None:
-    """Сохранить ID последнего фото-сообщения бота."""
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute(
-            "UPDATE users SET last_photo_msg_id = ? WHERE user_id = ?",
-            (msg_id, user_id),
-        )
-        await db.commit()
+    db = await _db()
+    await db.table("bot_users").update({"last_photo_msg_id": msg_id}).eq("user_id", user_id).execute()
 
 
 async def get_last_msg_id(user_id: int) -> int | None:
-    """Получить ID последнего сообщения бота для этого пользователя."""
     user = await get_user(user_id)
     return user["last_msg_id"] if user else None
 
 
 async def save_last_msg_id(user_id: int, msg_id: int) -> None:
-    """Сохранить ID последнего сообщения бота."""
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute(
-            "UPDATE users SET last_msg_id = ? WHERE user_id = ?",
-            (msg_id, user_id),
-        )
-        await db.commit()
+    db = await _db()
+    await db.table("bot_users").update({"last_msg_id": msg_id}).eq("user_id", user_id).execute()
 
 
 # ══════════════════════════════════════════════════════════
-#  Статистика (для админ-панели)
+#  Статистика
 # ══════════════════════════════════════════════════════════
 
 async def get_users_count() -> int:
-    """Общее количество пользователей."""
-    async with aiosqlite.connect(DB_PATH) as db:
-        async with db.execute("SELECT COUNT(*) FROM users") as cursor:
-            row = await cursor.fetchone()
-            return row[0] if row else 0
+    db = await _db()
+    res = await db.table("bot_users").select("user_id", count="exact").execute()
+    return res.count or 0
 
 
 async def get_today_users_count() -> int:
-    """Количество новых пользователей за сегодня (по UTC)."""
-    async with aiosqlite.connect(DB_PATH) as db:
-        async with db.execute(
-            "SELECT COUNT(*) FROM users WHERE date(created_at) = date('now')"
-        ) as cursor:
-            row = await cursor.fetchone()
-            return row[0] if row else 0
+    db = await _db()
+    from datetime import date
+    today = date.today().isoformat()
+    res = await db.table("bot_users").select("user_id", count="exact").gte("created_at", today).execute()
+    return res.count or 0
 
 
 async def get_last_user() -> dict | None:
-    """Последний зарегистрированный пользователь."""
-    async with aiosqlite.connect(DB_PATH) as db:
-        db.row_factory = aiosqlite.Row
-        async with db.execute(
-            "SELECT * FROM users ORDER BY created_at DESC LIMIT 1"
-        ) as cursor:
-            row = await cursor.fetchone()
-            return dict(row) if row else None
+    db = await _db()
+    res = await db.table("bot_users").select("*").order("created_at", desc=True).limit(1).execute()
+    return res.data[0] if res.data else None
 
 
 async def get_recent_users(limit: int = 10) -> list[dict]:
-    """Список последних N пользователей (по дате регистрации)."""
-    async with aiosqlite.connect(DB_PATH) as db:
-        db.row_factory = aiosqlite.Row
-        async with db.execute(
-            "SELECT * FROM users ORDER BY created_at DESC LIMIT ?", (limit,)
-        ) as cursor:
-            rows = await cursor.fetchall()
-            return [dict(row) for row in rows]
+    db = await _db()
+    res = await db.table("bot_users").select("*").order("created_at", desc=True).limit(limit).execute()
+    return res.data or []
+
+
+async def get_all_users_paginated(limit: int = 20, offset: int = 0) -> list[dict]:
+    db = await _db()
+    res = await db.table("bot_users").select("*").order("created_at", desc=True).range(offset, offset + limit - 1).execute()
+    return res.data or []
+
+
+async def get_users_total_count() -> int:
+    return await get_users_count()
 
 
 # ══════════════════════════════════════════════════════════
 #  Записи на приём (bookings)
 # ══════════════════════════════════════════════════════════
 
-async def create_booking(
-    user_id: int,
-    user_name: str,
-    username: str,
-    service: str,
-    service_id: str,
-    master: str,
-    master_id: str,
-    date: str,
-    time_start: str,
-    duration: int,
-    phone: str,
-) -> int | None:
-    """
-    Атомарно создать запись на приём.
-    Возвращает id созданной записи или None если слот уже занят (race condition).
-    """
-    date_time = f"{date} {time_start}" if date and time_start else ""
-    async with aiosqlite.connect(DB_PATH) as db:
-        # ── Финальная проверка свободности слота ──────────
-        # Считаем записи, которые пересекаются с [time_start, time_start+duration)
-        # Используем строковое сравнение HH:MM — работает корректно для формата
-        async with db.execute(
-            """SELECT COUNT(*) FROM bookings
-               WHERE master_id = ? AND date = ?
-               AND status NOT IN ('cancelled','rejected')
-               AND time_start < ?
-               AND (
-                   CASE WHEN length(time_start)=5
-                   THEN printf('%02d:%02d',
-                       (CAST(substr(time_start,1,2) AS INT)*60 + CAST(substr(time_start,4,2) AS INT) + duration) / 60,
-                       (CAST(substr(time_start,1,2) AS INT)*60 + CAST(substr(time_start,4,2) AS INT) + duration) % 60)
-                   ELSE '99:99' END
-               ) > ?""",
-            (master_id, date,
-             # existing.time_start < new_slot_end
-             _add_minutes_str(time_start, duration),
-             # existing.time_start + existing.duration > new_slot_start
-             time_start)
-        ) as cur:
-            count = (await cur.fetchone())[0]
-
-        if count > 0:
-            logger.warning(
-                "Слот занят (race condition): master=%s date=%s time=%s",
-                master_id, date, time_start
-            )
-            return None
-
-        cursor = await db.execute(
-            """
-            INSERT INTO bookings
-              (user_id, user_name, username, service, service_id,
-               master, master_id, date, time_start, duration, date_time, phone)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (user_id, user_name, username, service, service_id,
-             master, master_id, date, time_start, duration, date_time, phone),
-        )
-        await db.commit()
-        return cursor.lastrowid
-
-
 def _add_minutes_str(time_str: str, minutes: int) -> str:
-    """'HH:MM' + N минут → 'HH:MM'."""
     h, m = map(int, time_str.split(":"))
     total = h * 60 + m + minutes
     return f"{total // 60:02d}:{total % 60:02d}"
 
 
 async def get_booked_slots(master_id: str, date_str: str) -> list[dict]:
-    """Все записи мастера на дату (кроме cancelled)."""
-    async with aiosqlite.connect(DB_PATH) as db:
-        db.row_factory = aiosqlite.Row
-        async with db.execute(
-            """SELECT time_start, duration FROM bookings
-               WHERE master_id = ? AND date = ? AND status != 'cancelled'""",
-            (master_id, date_str)
-        ) as cursor:
-            rows = await cursor.fetchall()
-            return [dict(r) for r in rows]
+    db = await _db()
+    res = await (db.table("bot_bookings")
+                 .select("time_start,duration")
+                 .eq("master_id", master_id)
+                 .eq("date", date_str)
+                 .neq("status", "cancelled")
+                 .execute())
+    return res.data or []
+
+
+async def create_booking(
+    user_id: int, user_name: str, username: str,
+    service: str, service_id: str, master: str, master_id: str,
+    date: str, time_start: str, duration: int, phone: str,
+) -> int | None:
+    db = await _db()
+    # Проверка конфликта слотов
+    slots = await get_booked_slots(master_id, date)
+    new_end = _add_minutes_str(time_start, duration)
+    for slot in slots:
+        if slot["status"] in ("cancelled", "rejected"):
+            continue
+        existing_end = _add_minutes_str(slot["time_start"], slot["duration"] or 60)
+        if slot["time_start"] < new_end and existing_end > time_start:
+            logger.warning("Слот занят: master=%s date=%s time=%s", master_id, date, time_start)
+            return None
+
+    date_time = f"{date} {time_start}" if date and time_start else ""
+    res = await db.table("bot_bookings").insert({
+        "user_id": user_id, "user_name": user_name, "username": username,
+        "service": service, "service_id": service_id,
+        "master": master, "master_id": master_id,
+        "date": date, "time_start": time_start, "duration": duration,
+        "date_time": date_time, "phone": phone,
+    }).execute()
+    return res.data[0]["id"] if res.data else None
 
 
 async def get_user_bookings(user_id: int) -> list[dict]:
-    """Все записи конкретного пользователя (сначала новые)."""
-    async with aiosqlite.connect(DB_PATH) as db:
-        db.row_factory = aiosqlite.Row
-        async with db.execute(
-            "SELECT * FROM bookings WHERE user_id = ? ORDER BY created_at DESC",
-            (user_id,),
-        ) as cursor:
-            rows = await cursor.fetchall()
-            return [dict(row) for row in rows]
+    db = await _db()
+    res = await db.table("bot_bookings").select("*").eq("user_id", user_id).order("created_at", desc=True).execute()
+    return res.data or []
 
 
 async def get_all_bookings(limit: int = 20) -> list[dict]:
-    """Последние N записей (для админа)."""
-    async with aiosqlite.connect(DB_PATH) as db:
-        db.row_factory = aiosqlite.Row
-        async with db.execute(
-            "SELECT * FROM bookings ORDER BY created_at DESC LIMIT ?", (limit,)
-        ) as cursor:
-            rows = await cursor.fetchall()
-            return [dict(row) for row in rows]
+    db = await _db()
+    res = await db.table("bot_bookings").select("*").order("created_at", desc=True).limit(limit).execute()
+    return res.data or []
 
 
 async def get_pending_bookings_count() -> int:
-    """Количество записей со статусом 'new'."""
-    async with aiosqlite.connect(DB_PATH) as db:
-        async with db.execute("SELECT COUNT(*) FROM bookings WHERE status = 'new'") as cur:
-            row = await cur.fetchone()
-            return row[0] if row else 0
+    db = await _db()
+    res = await db.table("bot_bookings").select("id", count="exact").eq("status", "new").execute()
+    return res.count or 0
 
 
 async def get_pending_bookings(limit: int = 10) -> list[dict]:
-    """Записи ожидающие подтверждения (status='new'), новые первые."""
-    async with aiosqlite.connect(DB_PATH) as db:
-        db.row_factory = aiosqlite.Row
-        async with db.execute(
-            "SELECT * FROM bookings WHERE status = 'new' ORDER BY created_at DESC LIMIT ?",
-            (limit,)
-        ) as cur:
-            return [dict(r) for r in await cur.fetchall()]
+    db = await _db()
+    res = await (db.table("bot_bookings")
+                 .select("*").eq("status", "new")
+                 .order("created_at", desc=True).limit(limit).execute())
+    return res.data or []
 
 
 async def get_bookings_for_tomorrow() -> list[dict]:
-    """Все активные записи на завтра (для напоминаний клиентам)."""
     from datetime import date, timedelta
     tomorrow = (date.today() + timedelta(days=1)).isoformat()
-    async with aiosqlite.connect(DB_PATH) as db:
-        db.row_factory = aiosqlite.Row
-        async with db.execute(
-            """SELECT b.*, u.last_msg_id FROM bookings b
-               LEFT JOIN users u ON b.user_id = u.user_id
-               WHERE b.date = ? AND b.status NOT IN ('cancelled','rejected')
-               ORDER BY b.time_start ASC""",
-            (tomorrow,)
-        ) as cur:
-            return [dict(r) for r in await cur.fetchall()]
+    db = await _db()
+    res = await (db.table("bot_bookings")
+                 .select("*")
+                 .eq("date", tomorrow)
+                 .not_.in_("status", ["cancelled", "rejected"])
+                 .order("time_start").execute())
+    return res.data or []
 
 
 async def get_upcoming_bookings_for_master(master_id: str, limit: int = 10) -> list[dict]:
-    """Предстоящие записи мастера (сегодня и позже, не отменённые)."""
     from datetime import date as _date
     today = _date.today().isoformat()
-    async with aiosqlite.connect(DB_PATH) as db:
-        db.row_factory = aiosqlite.Row
-        async with db.execute(
-            """SELECT * FROM bookings
-               WHERE master_id = ? AND date >= ? AND status NOT IN ('cancelled','rejected')
-               ORDER BY date ASC, time_start ASC LIMIT ?""",
-            (master_id, today, limit)
-        ) as cur:
-            return [dict(r) for r in await cur.fetchall()]
-
-
-async def get_all_users_paginated(limit: int = 20, offset: int = 0) -> list[dict]:
-    """Пользователи с пагинацией для панели администратора."""
-    async with aiosqlite.connect(DB_PATH) as db:
-        db.row_factory = aiosqlite.Row
-        async with db.execute(
-            "SELECT * FROM users ORDER BY created_at DESC LIMIT ? OFFSET ?",
-            (limit, offset)
-        ) as cur:
-            return [dict(r) for r in await cur.fetchall()]
-
-
-async def get_users_total_count() -> int:
-    async with aiosqlite.connect(DB_PATH) as db:
-        async with db.execute("SELECT COUNT(*) FROM users") as cur:
-            row = await cur.fetchone()
-            return row[0] if row else 0
+    db = await _db()
+    res = await (db.table("bot_bookings")
+                 .select("*")
+                 .eq("master_id", master_id)
+                 .gte("date", today)
+                 .not_.in_("status", ["cancelled", "rejected"])
+                 .order("date").order("time_start")
+                 .limit(limit).execute())
+    return res.data or []
 
 
 async def get_bookings_count() -> int:
-    """Общее количество записей."""
-    async with aiosqlite.connect(DB_PATH) as db:
-        async with db.execute("SELECT COUNT(*) FROM bookings") as cursor:
-            row = await cursor.fetchone()
-            return row[0] if row else 0
+    db = await _db()
+    res = await db.table("bot_bookings").select("id", count="exact").execute()
+    return res.count or 0
 
 
 async def get_today_bookings_count() -> int:
-    """Количество записей за сегодня."""
-    async with aiosqlite.connect(DB_PATH) as db:
-        async with db.execute(
-            "SELECT COUNT(*) FROM bookings WHERE date(created_at) = date('now')"
-        ) as cursor:
-            row = await cursor.fetchone()
-            return row[0] if row else 0
+    from datetime import date
+    today = date.today().isoformat()
+    db = await _db()
+    res = await db.table("bot_bookings").select("id", count="exact").gte("created_at", today).execute()
+    return res.count or 0
 
 
 async def get_booking(booking_id: int) -> dict | None:
-    """Получить запись на приём по ID."""
-    async with aiosqlite.connect(DB_PATH) as db:
-        db.row_factory = aiosqlite.Row
-        async with db.execute(
-            "SELECT * FROM bookings WHERE id = ?", (booking_id,)
-        ) as cursor:
-            row = await cursor.fetchone()
-            return dict(row) if row else None
+    db = await _db()
+    res = await db.table("bot_bookings").select("*").eq("id", booking_id).maybe_single().execute()
+    return res.data
 
 
 async def update_booking_status(booking_id: int, status: str) -> None:
-    """Обновить статус записи: new / confirmed / cancelled."""
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute(
-            "UPDATE bookings SET status = ? WHERE id = ?",
-            (status, booking_id),
-        )
-        await db.commit()
+    db = await _db()
+    await db.table("bot_bookings").update({"status": status}).eq("id", booking_id).execute()
+
+
+async def update_booking_attended(booking_id: int, attended: int) -> None:
+    db = await _db()
+    await db.table("bot_bookings").update({"attended": attended}).eq("id", booking_id).execute()
 
 
 # ══════════════════════════════════════════════════════════
@@ -611,100 +278,68 @@ async def update_booking_status(booking_id: int, status: str) -> None:
 # ══════════════════════════════════════════════════════════
 
 async def seed_master_schedules() -> None:
-    """Заполняет master_schedules из salon.py если таблица пустая."""
     from data.salon import MASTER_SCHEDULE
-    async with aiosqlite.connect(DB_PATH) as db:
-        async with db.execute("SELECT COUNT(*) FROM master_schedules") as cur:
-            count = (await cur.fetchone())[0]
-        if count > 0:
-            return
-        for master_id, info in MASTER_SCHEDULE.items():
-            for day in range(7):
-                is_working = 1 if day in info["working_days"] else 0
-                await db.execute(
-                    """INSERT OR IGNORE INTO master_schedules
-                       (master_id, day_of_week, start_time, end_time, is_working)
-                       VALUES (?, ?, ?, ?, ?)""",
-                    (master_id, day, info["start"], info["end"], is_working)
-                )
-        await db.commit()
-    logger.info("Расписание мастеров перенесено в БД")
+    db = await _db()
+    res = await db.table("bot_master_schedules").select("master_id", count="exact").execute()
+    if (res.count or 0) > 0:
+        return
+    rows = []
+    for master_id, info in MASTER_SCHEDULE.items():
+        for day in range(7):
+            rows.append({
+                "master_id": master_id, "day_of_week": day,
+                "start_time": info["start"], "end_time": info["end"],
+                "is_working": 1 if day in info["working_days"] else 0,
+            })
+    if rows:
+        await db.table("bot_master_schedules").upsert(rows).execute()
+    logger.info("Расписание мастеров перенесено в Supabase")
 
 
 async def get_master_schedule(master_id: str) -> list[dict]:
-    """Расписание мастера — 7 строк (по одной на день)."""
-    async with aiosqlite.connect(DB_PATH) as db:
-        db.row_factory = aiosqlite.Row
-        async with db.execute(
-            "SELECT * FROM master_schedules WHERE master_id = ? ORDER BY day_of_week",
-            (master_id,)
-        ) as cur:
-            return [dict(r) for r in await cur.fetchall()]
+    db = await _db()
+    res = await db.table("bot_master_schedules").select("*").eq("master_id", master_id).order("day_of_week").execute()
+    return res.data or []
 
 
 async def toggle_master_day(master_id: str, day_of_week: int) -> int:
-    """Переключить рабочий/выходной для дня. Возвращает новое значение is_working."""
-    async with aiosqlite.connect(DB_PATH) as db:
-        async with db.execute(
-            "SELECT is_working FROM master_schedules WHERE master_id=? AND day_of_week=?",
-            (master_id, day_of_week)
-        ) as cur:
-            row = await cur.fetchone()
-        new_val = 0 if (row and row[0]) else 1
-        await db.execute(
-            "UPDATE master_schedules SET is_working=? WHERE master_id=? AND day_of_week=?",
-            (new_val, master_id, day_of_week)
-        )
-        await db.commit()
-        return new_val
+    db = await _db()
+    res = await db.table("bot_master_schedules").select("is_working").eq("master_id", master_id).eq("day_of_week", day_of_week).maybe_single().execute()
+    current = res.data["is_working"] if res.data else 1
+    new_val = 0 if current else 1
+    await db.table("bot_master_schedules").update({"is_working": new_val}).eq("master_id", master_id).eq("day_of_week", day_of_week).execute()
+    return new_val
 
 
 async def update_master_hours(master_id: str, day_of_week: int, start: str, end: str) -> None:
-    """Обновить часы работы мастера для конкретного дня."""
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute(
-            "UPDATE master_schedules SET start_time=?, end_time=? WHERE master_id=? AND day_of_week=?",
-            (start, end, master_id, day_of_week)
-        )
-        await db.commit()
+    db = await _db()
+    await db.table("bot_master_schedules").update({"start_time": start, "end_time": end}).eq("master_id", master_id).eq("day_of_week", day_of_week).execute()
 
 
 async def update_master_all_hours(master_id: str, start: str, end: str) -> None:
-    """Обновить часы работы мастера для всех рабочих дней сразу."""
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute(
-            "UPDATE master_schedules SET start_time=?, end_time=? WHERE master_id=? AND is_working=1",
-            (start, end, master_id)
-        )
-        await db.commit()
+    db = await _db()
+    await db.table("bot_master_schedules").update({"start_time": start, "end_time": end}).eq("master_id", master_id).eq("is_working", 1).execute()
 
 
 async def add_master_dayoff(master_id: str, date: str, reason: str = "") -> None:
-    """Добавить выходной день мастера."""
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute(
-            "INSERT OR IGNORE INTO master_dayoffs (master_id, date, reason) VALUES (?,?,?)",
-            (master_id, date, reason)
-        )
-        await db.commit()
+    db = await _db()
+    try:
+        await db.table("bot_master_dayoffs").insert({"master_id": master_id, "date": date, "reason": reason}).execute()
+    except Exception:
+        pass
 
 
 async def get_master_dayoffs(master_id: str) -> list[dict]:
-    """Будущие выходные мастера."""
-    async with aiosqlite.connect(DB_PATH) as db:
-        db.row_factory = aiosqlite.Row
-        async with db.execute(
-            "SELECT * FROM master_dayoffs WHERE master_id=? AND date >= date('now') ORDER BY date",
-            (master_id,)
-        ) as cur:
-            return [dict(r) for r in await cur.fetchall()]
+    from datetime import date
+    today = date.today().isoformat()
+    db = await _db()
+    res = await db.table("bot_master_dayoffs").select("*").eq("master_id", master_id).gte("date", today).order("date").execute()
+    return res.data or []
 
 
 async def delete_master_dayoff(dayoff_id: int) -> None:
-    """Удалить выходной день мастера по ID."""
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute("DELETE FROM master_dayoffs WHERE id=?", (dayoff_id,))
-        await db.commit()
+    db = await _db()
+    await db.table("bot_master_dayoffs").delete().eq("id", dayoff_id).execute()
 
 
 # ══════════════════════════════════════════════════════════
@@ -712,108 +347,102 @@ async def delete_master_dayoff(dayoff_id: int) -> None:
 # ══════════════════════════════════════════════════════════
 
 async def seed_masters() -> None:
-    """Заполняет таблицу masters из salon.py если она пустая."""
     from data.salon import MASTER_SCHEDULE
-    async with aiosqlite.connect(DB_PATH) as db:
-        async with db.execute("SELECT COUNT(*) FROM masters") as cur:
-            if (await cur.fetchone())[0] > 0:
-                return
-        for master_id, info in MASTER_SCHEDULE.items():
-            await db.execute(
-                "INSERT OR IGNORE INTO masters (master_id, name, category) VALUES (?,?,?)",
-                (master_id, info["name"], info["category"])
-            )
-        await db.commit()
-    logger.info("Профили мастеров перенесены в БД")
+    db = await _db()
+    res = await db.table("bot_masters").select("master_id", count="exact").execute()
+    if (res.count or 0) > 0:
+        return
+    rows = [{"master_id": mid, "name": info["name"], "category": info["category"]}
+            for mid, info in MASTER_SCHEDULE.items()]
+    if rows:
+        await db.table("bot_masters").upsert(rows).execute()
+    logger.info("Профили мастеров перенесены в Supabase")
 
 
 async def seed_master_photos() -> None:
-    """Заполняет photo_file_id из MASTER_PHOTOS если не задан."""
     from data.salon import MASTER_PHOTOS
-    async with aiosqlite.connect(DB_PATH) as db:
-        for master_id, photo_url in MASTER_PHOTOS.items():
-            await db.execute(
-                "UPDATE masters SET photo_file_id = ? WHERE master_id = ? AND (photo_file_id IS NULL OR photo_file_id = '')",
-                (photo_url, master_id)
-            )
-        await db.commit()
+    db = await _db()
+    for master_id, photo_url in MASTER_PHOTOS.items():
+        res = await db.table("bot_masters").select("photo_file_id").eq("master_id", master_id).maybe_single().execute()
+        if res.data and not res.data.get("photo_file_id"):
+            await db.table("bot_masters").update({"photo_file_id": photo_url}).eq("master_id", master_id).execute()
 
 
 async def get_masters_by_category(category: str) -> list[dict]:
-    """Список активных мастеров категории."""
-    async with aiosqlite.connect(DB_PATH) as db:
-        db.row_factory = aiosqlite.Row
-        async with db.execute(
-            "SELECT * FROM masters WHERE category = ? AND is_active = 1",
-            (category,)
-        ) as cur:
-            return [dict(r) for r in await cur.fetchall()]
+    db = await _db()
+    res = await db.table("bot_masters").select("*").eq("category", category).eq("is_active", 1).execute()
+    return res.data or []
 
 
 async def get_master(master_id: str) -> dict | None:
-    """Получить мастера по master_id."""
-    async with aiosqlite.connect(DB_PATH) as db:
-        db.row_factory = aiosqlite.Row
-        async with db.execute(
-            "SELECT * FROM masters WHERE master_id = ?", (master_id,)
-        ) as cur:
-            row = await cur.fetchone()
-            return dict(row) if row else None
+    db = await _db()
+    res = await db.table("bot_masters").select("*").eq("master_id", master_id).maybe_single().execute()
+    return res.data
 
 
 async def set_master_telegram_id(master_id: str, telegram_user_id: int | None) -> None:
-    """Привязать или отвязать Telegram-аккаунт от мастера (None = отвязать)."""
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute(
-            "UPDATE masters SET telegram_user_id = ? WHERE master_id = ?",
-            (telegram_user_id, master_id)
-        )
-        await db.commit()
+    db = await _db()
+    await db.table("bot_masters").update({"telegram_user_id": telegram_user_id}).eq("master_id", master_id).execute()
 
 
 async def get_master_by_telegram_id(telegram_user_id: int) -> dict | None:
-    """Найти мастера по Telegram user_id."""
-    async with aiosqlite.connect(DB_PATH) as db:
-        db.row_factory = aiosqlite.Row
-        async with db.execute(
-            "SELECT * FROM masters WHERE telegram_user_id = ?", (telegram_user_id,)
-        ) as cur:
-            row = await cur.fetchone()
-            return dict(row) if row else None
+    db = await _db()
+    res = await db.table("bot_masters").select("*").eq("telegram_user_id", telegram_user_id).maybe_single().execute()
+    return res.data
 
-
-# ══════════════════════════════════════════════════════════
-#  Фото мастеров
-# ══════════════════════════════════════════════════════════
 
 async def set_master_photo(master_id: str, photo_file_id: str) -> None:
-    """Установить фото мастера."""
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute(
-            "UPDATE masters SET photo_file_id = ? WHERE master_id = ?",
-            (photo_file_id, master_id)
-        )
-        await db.commit()
+    db = await _db()
+    await db.table("bot_masters").update({"photo_file_id": photo_file_id}).eq("master_id", master_id).execute()
 
 
 async def get_master_photo(master_id: str) -> str | None:
-    """Получить file_id фото мастера или None."""
-    async with aiosqlite.connect(DB_PATH) as db:
-        async with db.execute(
-            "SELECT photo_file_id FROM masters WHERE master_id = ?", (master_id,)
-        ) as cur:
-            row = await cur.fetchone()
-            return row[0] if row else None
+    db = await _db()
+    res = await db.table("bot_masters").select("photo_file_id").eq("master_id", master_id).maybe_single().execute()
+    return res.data["photo_file_id"] if res.data else None
 
 
 async def get_all_masters_with_photos() -> list[dict]:
-    """Все активные мастера с полями master_id, name, category, photo_file_id."""
-    async with aiosqlite.connect(DB_PATH) as db:
-        db.row_factory = aiosqlite.Row
-        async with db.execute(
-            "SELECT master_id, name, category, photo_file_id FROM masters WHERE is_active = 1 ORDER BY category, name"
-        ) as cur:
-            return [dict(r) for r in await cur.fetchall()]
+    db = await _db()
+    res = await db.table("bot_masters").select("master_id,name,category,photo_file_id").eq("is_active", 1).order("category").order("name").execute()
+    return res.data or []
+
+
+async def get_all_masters_admin() -> list[dict]:
+    db = await _db()
+    res = await db.table("bot_masters").select("*").order("category").order("name").execute()
+    return res.data or []
+
+
+async def add_master_to_db(master_id: str, name: str, category: str,
+                            description: str = "", telegram_user_id: int = None) -> None:
+    db = await _db()
+    try:
+        await db.table("bot_masters").insert({
+            "master_id": master_id, "name": name, "category": category,
+            "description": description, "telegram_user_id": telegram_user_id, "is_active": 1,
+        }).execute()
+    except Exception:
+        pass
+
+
+async def update_master_name(master_id: str, name: str) -> None:
+    db = await _db()
+    await db.table("bot_masters").update({"name": name}).eq("master_id", master_id).execute()
+
+
+async def update_master_description(master_id: str, description: str) -> None:
+    db = await _db()
+    await db.table("bot_masters").update({"description": description}).eq("master_id", master_id).execute()
+
+
+async def toggle_master_active(master_id: str) -> int:
+    db = await _db()
+    res = await db.table("bot_masters").select("is_active").eq("master_id", master_id).maybe_single().execute()
+    current = res.data["is_active"] if res.data else 1
+    new_val = 0 if current else 1
+    await db.table("bot_masters").update({"is_active": new_val}).eq("master_id", master_id).execute()
+    return new_val
 
 
 # ══════════════════════════════════════════════════════════
@@ -821,98 +450,35 @@ async def get_all_masters_with_photos() -> list[dict]:
 # ══════════════════════════════════════════════════════════
 
 async def get_all_admins() -> list[dict]:
-    """Список всех дополнительных администраторов."""
-    async with aiosqlite.connect(DB_PATH) as db:
-        db.row_factory = aiosqlite.Row
-        async with db.execute(
-            "SELECT * FROM admins ORDER BY created_at"
-        ) as cur:
-            return [dict(r) for r in await cur.fetchall()]
+    db = await _db()
+    res = await db.table("bot_admins").select("*").order("created_at").execute()
+    return res.data or []
 
 
 async def add_admin(user_id: int, username: str, full_name: str, added_by: int) -> None:
-    """Добавить администратора в таблицу admins."""
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute(
-            """INSERT OR REPLACE INTO admins (user_id, username, full_name, added_by)
-               VALUES (?, ?, ?, ?)""",
-            (user_id, username or '', full_name or '', added_by)
-        )
-        await db.commit()
+    db = await _db()
+    await db.table("bot_admins").upsert({
+        "user_id": user_id, "username": username or "",
+        "full_name": full_name or "", "added_by": added_by,
+    }).execute()
 
 
 async def remove_admin(user_id: int) -> None:
-    """Удалить администратора из таблицы admins."""
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute("DELETE FROM admins WHERE user_id = ?", (user_id,))
-        await db.commit()
+    db = await _db()
+    await db.table("bot_admins").delete().eq("user_id", user_id).execute()
 
 
 async def is_admin_in_db(user_id: int) -> bool:
-    """Проверить наличие user_id в таблице admins."""
-    async with aiosqlite.connect(DB_PATH) as db:
-        async with db.execute(
-            "SELECT 1 FROM admins WHERE user_id = ?", (user_id,)
-        ) as cur:
-            return await cur.fetchone() is not None
+    db = await _db()
+    res = await db.table("bot_admins").select("user_id").eq("user_id", user_id).maybe_single().execute()
+    return res.data is not None
 
 
 async def get_user_by_username(username: str) -> dict | None:
-    """Найти пользователя по username (без @)."""
-    async with aiosqlite.connect(DB_PATH) as db:
-        db.row_factory = aiosqlite.Row
-        async with db.execute(
-            "SELECT * FROM users WHERE LOWER(username) = LOWER(?)", (username.lstrip("@"),)
-        ) as cur:
-            row = await cur.fetchone()
-            return dict(row) if row else None
-
-
-async def get_all_masters_admin() -> list[dict]:
-    """Все мастера включая неактивных — для панели администратора."""
-    async with aiosqlite.connect(DB_PATH) as db:
-        db.row_factory = aiosqlite.Row
-        async with db.execute(
-            "SELECT * FROM masters ORDER BY category, name"
-        ) as cur:
-            return [dict(r) for r in await cur.fetchall()]
-
-
-async def add_master_to_db(master_id: str, name: str, category: str,
-                            description: str = "", telegram_user_id: int = None) -> None:
-    """Добавить нового мастера в БД."""
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute(
-            """INSERT OR IGNORE INTO masters
-               (master_id, name, category, description, telegram_user_id, is_active)
-               VALUES (?, ?, ?, ?, ?, 1)""",
-            (master_id, name, category, description, telegram_user_id)
-        )
-        await db.commit()
-
-
-async def update_master_name(master_id: str, name: str) -> None:
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute("UPDATE masters SET name = ? WHERE master_id = ?", (name, master_id))
-        await db.commit()
-
-
-async def update_master_description(master_id: str, description: str) -> None:
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute("UPDATE masters SET description = ? WHERE master_id = ?", (description, master_id))
-        await db.commit()
-
-
-async def toggle_master_active(master_id: str) -> int:
-    """Переключить активность мастера. Возвращает новое значение (0 или 1)."""
-    async with aiosqlite.connect(DB_PATH) as db:
-        async with db.execute("SELECT is_active FROM masters WHERE master_id = ?", (master_id,)) as cur:
-            row = await cur.fetchone()
-            current = row[0] if row else 1
-        new_val = 0 if current else 1
-        await db.execute("UPDATE masters SET is_active = ? WHERE master_id = ?", (new_val, master_id))
-        await db.commit()
-        return new_val
+    db = await _db()
+    clean = username.lstrip("@").lower()
+    res = await db.table("bot_users").select("*").ilike("username", clean).maybe_single().execute()
+    return res.data
 
 
 # ══════════════════════════════════════════════════════════
@@ -920,44 +486,30 @@ async def toggle_master_active(master_id: str) -> int:
 # ══════════════════════════════════════════════════════════
 
 async def increment_visit_count(user_id: int) -> int:
-    """Увеличить счётчик посещений. Возвращает новое значение."""
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute(
-            "UPDATE users SET visit_count = COALESCE(visit_count, 0) + 1 WHERE user_id = ?",
-            (user_id,)
-        )
-        await db.commit()
-        async with db.execute("SELECT visit_count FROM users WHERE user_id = ?", (user_id,)) as cur:
-            row = await cur.fetchone()
-            return row[0] if row else 1
+    user = await get_user(user_id)
+    current = (user or {}).get("visit_count", 0) or 0
+    new_val = current + 1
+    db = await _db()
+    await db.table("bot_users").update({"visit_count": new_val}).eq("user_id", user_id).execute()
+    return new_val
 
 
 async def get_user_visit_count(user_id: int) -> int:
-    async with aiosqlite.connect(DB_PATH) as db:
-        async with db.execute("SELECT visit_count FROM users WHERE user_id = ?", (user_id,)) as cur:
-            row = await cur.fetchone()
-            return row[0] if row else 0
+    user = await get_user(user_id)
+    return (user or {}).get("visit_count", 0) or 0
 
 
 async def update_user_birthdate(user_id: int, birthdate: str) -> None:
-    """Сохранить дату рождения в формате MM-DD."""
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute(
-            "UPDATE users SET birthdate = ? WHERE user_id = ?", (birthdate, user_id)
-        )
-        await db.commit()
+    db = await _db()
+    await db.table("bot_users").update({"birthdate": birthdate}).eq("user_id", user_id).execute()
 
 
 async def get_birthday_users_today() -> list[dict]:
-    """Пользователи, у которых сегодня день рождения (поле birthdate = 'MM-DD')."""
     from datetime import date
     today_mmdd = date.today().strftime("%m-%d")
-    async with aiosqlite.connect(DB_PATH) as db:
-        db.row_factory = aiosqlite.Row
-        async with db.execute(
-            "SELECT * FROM users WHERE birthdate = ?", (today_mmdd,)
-        ) as cur:
-            return [dict(r) for r in await cur.fetchall()]
+    db = await _db()
+    res = await db.table("bot_users").select("*").eq("birthdate", today_mmdd).execute()
+    return res.data or []
 
 
 # ══════════════════════════════════════════════════════════
@@ -966,65 +518,49 @@ async def get_birthday_users_today() -> list[dict]:
 
 async def create_review(booking_id: int, user_id: int, master_id: str,
                         rating: int, comment: str = "") -> int:
-    """Сохранить отзыв. Возвращает id."""
-    async with aiosqlite.connect(DB_PATH) as db:
-        cur = await db.execute(
-            """INSERT OR REPLACE INTO reviews (booking_id, user_id, master_id, rating, comment)
-               VALUES (?, ?, ?, ?, ?)""",
-            (booking_id, user_id, master_id, rating, comment)
-        )
-        await db.commit()
-        return cur.lastrowid
+    db = await _db()
+    res = await db.table("bot_reviews").upsert({
+        "booking_id": booking_id, "user_id": user_id,
+        "master_id": master_id, "rating": rating, "comment": comment,
+    }, on_conflict="booking_id").execute()
+    return res.data[0]["id"] if res.data else 0
 
 
 async def get_review_by_booking(booking_id: int) -> dict | None:
-    async with aiosqlite.connect(DB_PATH) as db:
-        db.row_factory = aiosqlite.Row
-        async with db.execute("SELECT * FROM reviews WHERE booking_id = ?", (booking_id,)) as cur:
-            row = await cur.fetchone()
-            return dict(row) if row else None
+    db = await _db()
+    res = await db.table("bot_reviews").select("*").eq("booking_id", booking_id).maybe_single().execute()
+    return res.data
 
 
 async def get_master_reviews(master_id: str, limit: int = 20) -> list[dict]:
-    async with aiosqlite.connect(DB_PATH) as db:
-        db.row_factory = aiosqlite.Row
-        async with db.execute(
-            "SELECT * FROM reviews WHERE master_id = ? ORDER BY created_at DESC LIMIT ?",
-            (master_id, limit)
-        ) as cur:
-            return [dict(r) for r in await cur.fetchall()]
+    db = await _db()
+    res = await db.table("bot_reviews").select("*").eq("master_id", master_id).order("created_at", desc=True).limit(limit).execute()
+    return res.data or []
 
 
 async def get_avg_rating(master_id: str) -> float | None:
-    async with aiosqlite.connect(DB_PATH) as db:
-        async with db.execute(
-            "SELECT AVG(rating) FROM reviews WHERE master_id = ?", (master_id,)
-        ) as cur:
-            row = await cur.fetchone()
-            return round(row[0], 1) if row and row[0] is not None else None
+    db = await _db()
+    res = await db.table("bot_reviews").select("rating").eq("master_id", master_id).execute()
+    ratings = [r["rating"] for r in (res.data or []) if r["rating"] is not None]
+    return round(sum(ratings) / len(ratings), 1) if ratings else None
 
 
 async def get_bookings_for_review() -> list[dict]:
-    """Вчерашние подтверждённые записи, по которым ещё не запрашивали отзыв."""
     from datetime import date, timedelta
     yesterday = (date.today() - timedelta(days=1)).isoformat()
-    async with aiosqlite.connect(DB_PATH) as db:
-        db.row_factory = aiosqlite.Row
-        async with db.execute(
-            """SELECT * FROM bookings
-               WHERE date = ? AND status = 'confirmed'
-               AND (review_requested IS NULL OR review_requested = 0)""",
-            (yesterday,)
-        ) as cur:
-            return [dict(r) for r in await cur.fetchall()]
+    db = await _db()
+    res = await (db.table("bot_bookings")
+                 .select("*")
+                 .eq("date", yesterday)
+                 .eq("status", "confirmed")
+                 .eq("review_requested", 0)
+                 .execute())
+    return res.data or []
 
 
 async def mark_review_requested(booking_id: int) -> None:
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute(
-            "UPDATE bookings SET review_requested = 1 WHERE id = ?", (booking_id,)
-        )
-        await db.commit()
+    db = await _db()
+    await db.table("bot_bookings").update({"review_requested": 1}).eq("id", booking_id).execute()
 
 
 # ══════════════════════════════════════════════════════════
@@ -1032,38 +568,28 @@ async def mark_review_requested(booking_id: int) -> None:
 # ══════════════════════════════════════════════════════════
 
 async def add_gallery_photo(master_id: str, category: str, file_id: str, caption: str = "") -> int:
-    async with aiosqlite.connect(DB_PATH) as db:
-        cur = await db.execute(
-            "INSERT INTO gallery (master_id, category, file_id, caption) VALUES (?,?,?,?)",
-            (master_id, category, file_id, caption)
-        )
-        await db.commit()
-        return cur.lastrowid
+    db = await _db()
+    res = await db.table("bot_gallery").insert({
+        "master_id": master_id, "category": category, "file_id": file_id, "caption": caption,
+    }).execute()
+    return res.data[0]["id"] if res.data else 0
 
 
 async def get_gallery_by_category(category: str, limit: int = 20) -> list[dict]:
-    async with aiosqlite.connect(DB_PATH) as db:
-        db.row_factory = aiosqlite.Row
-        async with db.execute(
-            "SELECT * FROM gallery WHERE category = ? ORDER BY created_at DESC LIMIT ?",
-            (category, limit)
-        ) as cur:
-            return [dict(r) for r in await cur.fetchall()]
+    db = await _db()
+    res = await db.table("bot_gallery").select("*").eq("category", category).order("created_at", desc=True).limit(limit).execute()
+    return res.data or []
 
 
 async def get_all_gallery(limit: int = 50) -> list[dict]:
-    async with aiosqlite.connect(DB_PATH) as db:
-        db.row_factory = aiosqlite.Row
-        async with db.execute(
-            "SELECT * FROM gallery ORDER BY created_at DESC LIMIT ?", (limit,)
-        ) as cur:
-            return [dict(r) for r in await cur.fetchall()]
+    db = await _db()
+    res = await db.table("bot_gallery").select("*").order("created_at", desc=True).limit(limit).execute()
+    return res.data or []
 
 
 async def delete_gallery_photo(photo_id: int) -> None:
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute("DELETE FROM gallery WHERE id = ?", (photo_id,))
-        await db.commit()
+    db = await _db()
+    await db.table("bot_gallery").delete().eq("id", photo_id).execute()
 
 
 # ══════════════════════════════════════════════════════════
@@ -1071,38 +597,20 @@ async def delete_gallery_photo(photo_id: int) -> None:
 # ══════════════════════════════════════════════════════════
 
 async def save_client_note(master_id: str, client_user_id: int, note: str) -> None:
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute(
-            """INSERT INTO client_notes (master_id, client_user_id, note, updated_at)
-               VALUES (?, ?, ?, datetime('now'))
-               ON CONFLICT(master_id, client_user_id) DO UPDATE SET
-               note = excluded.note, updated_at = excluded.updated_at""",
-            (master_id, client_user_id, note)
-        )
-        await db.commit()
+    db = await _db()
+    await db.table("bot_client_notes").upsert({
+        "master_id": master_id, "client_user_id": client_user_id, "note": note,
+    }, on_conflict="master_id,client_user_id").execute()
 
 
 async def get_client_note(master_id: str, client_user_id: int) -> str | None:
-    async with aiosqlite.connect(DB_PATH) as db:
-        async with db.execute(
-            "SELECT note FROM client_notes WHERE master_id = ? AND client_user_id = ?",
-            (master_id, client_user_id)
-        ) as cur:
-            row = await cur.fetchone()
-            return row[0] if row else None
-
-
-# ══════════════════════════════════════════════════════════
-#  Посещаемость
-# ══════════════════════════════════════════════════════════
-
-async def update_booking_attended(booking_id: int, attended: int) -> None:
-    """attended: 1 = пришёл, 0 = не пришёл."""
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute(
-            "UPDATE bookings SET attended = ? WHERE id = ?", (attended, booking_id)
-        )
-        await db.commit()
+    db = await _db()
+    res = await (db.table("bot_client_notes")
+                 .select("note")
+                 .eq("master_id", master_id)
+                 .eq("client_user_id", client_user_id)
+                 .maybe_single().execute())
+    return res.data["note"] if res.data else None
 
 
 # ══════════════════════════════════════════════════════════
@@ -1110,15 +618,10 @@ async def update_booking_attended(booking_id: int, attended: int) -> None:
 # ══════════════════════════════════════════════════════════
 
 async def get_all_user_ids() -> list[int]:
-    """Все user_id для рассылки."""
-    async with aiosqlite.connect(DB_PATH) as db:
-        async with db.execute("SELECT user_id FROM users") as cur:
-            return [row[0] for row in await cur.fetchall()]
+    db = await _db()
+    res = await db.table("bot_users").select("user_id").execute()
+    return [r["user_id"] for r in (res.data or [])]
 
-
-# ══════════════════════════════════════════════════════════
-#  Отчёты
-# ══════════════════════════════════════════════════════════
 
 # ══════════════════════════════════════════════════════════
 #  Настройки салона
@@ -1128,7 +631,6 @@ _settings_cache: dict = {}
 
 
 async def seed_salon_settings() -> None:
-    """Заполняет настройки значениями по умолчанию из salon.py (только если ключа нет)."""
     from data.salon import (
         SALON_NAME, SALON_ADDRESS, SALON_METRO, SALON_PHONE,
         SALON_INSTAGRAM, SALON_SINCE, SALON_HOURS,
@@ -1143,32 +645,28 @@ async def seed_salon_settings() -> None:
         "salon_hours_weekdays": SALON_HOURS["weekdays"],
         "salon_hours_weekends": SALON_HOURS["weekends"],
         "currency":             "€",
-        "specialist_label":   "мастер",
-        "specialists_label":  "Специалисты",
-        "photo_main":     "",
-        "photo_services": "",
-        "photo_masters":  "",
-        "photo_booking":  "",
-        "photo_about":    "",
-        "photo_admin":    "",
+        "specialist_label":     "мастер",
+        "specialists_label":    "Специалисты",
+        "photo_main": "", "photo_services": "", "photo_masters": "",
+        "photo_booking": "", "photo_about": "", "photo_admin": "",
     }
-    async with aiosqlite.connect(DB_PATH) as db:
-        for key, value in defaults.items():
-            await db.execute(
-                "INSERT OR IGNORE INTO salon_settings (key, value) VALUES (?, ?)",
-                (key, value)
-            )
-        await db.commit()
+    db = await _db()
+    rows = [{"key": k, "value": v} for k, v in defaults.items()]
+    # insert only missing keys
+    existing = await db.table("bot_salon_settings").select("key").execute()
+    existing_keys = {r["key"] for r in (existing.data or [])}
+    new_rows = [r for r in rows if r["key"] not in existing_keys]
+    if new_rows:
+        await db.table("bot_salon_settings").insert(new_rows).execute()
     await _refresh_settings()
 
 
 async def _refresh_settings() -> None:
-    async with aiosqlite.connect(DB_PATH) as db:
-        async with db.execute("SELECT key, value FROM salon_settings") as cur:
-            rows = await cur.fetchall()
+    db = await _db()
+    res = await db.table("bot_salon_settings").select("key,value").execute()
     _settings_cache.clear()
-    for row in rows:
-        _settings_cache[row[0]] = row[1]
+    for row in (res.data or []):
+        _settings_cache[row["key"]] = row["value"]
 
 
 async def get_setting(key: str, default: str = "") -> str:
@@ -1178,12 +676,8 @@ async def get_setting(key: str, default: str = "") -> str:
 
 
 async def set_setting(key: str, value: str) -> None:
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute(
-            "INSERT OR REPLACE INTO salon_settings (key, value) VALUES (?, ?)",
-            (key, value)
-        )
-        await db.commit()
+    db = await _db()
+    await db.table("bot_salon_settings").upsert({"key": key, "value": value}).execute()
     _settings_cache[key] = value
 
 
@@ -1194,7 +688,6 @@ async def get_all_settings() -> dict:
 
 
 async def get_system_lang() -> str:
-    """Системный язык салона — устанавливается админом, используется для данных в БД и уведомлений."""
     return await get_setting("default_lang", "ru")
 
 
@@ -1203,149 +696,69 @@ async def get_system_lang() -> str:
 # ══════════════════════════════════════════════════════════
 
 async def mark_gdpr_accepted(user_id: int) -> None:
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute(
-            "UPDATE users SET gdpr_accepted = 1 WHERE user_id = ?", (user_id,)
-        )
-        await db.commit()
+    db = await _db()
+    await db.table("bot_users").update({"gdpr_accepted": 1}).eq("user_id", user_id).execute()
 
 
 async def delete_user_data(user_id: int) -> None:
-    """Анонимизировать данные пользователя (право на забвение GDPR)."""
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute(
-            """UPDATE users SET
-               username = '[deleted]', full_name = '[deleted]',
-               phone = NULL, birthdate = NULL, gdpr_accepted = 0
-               WHERE user_id = ?""",
-            (user_id,)
-        )
-        await db.execute(
-            """UPDATE bookings SET
-               user_name = '[deleted]', username = '[deleted]', phone = '[deleted]'
-               WHERE user_id = ?""",
-            (user_id,)
-        )
-        await db.commit()
+    db = await _db()
+    await db.table("bot_users").update({
+        "username": "[deleted]", "full_name": "[deleted]",
+        "phone": None, "birthdate": None, "gdpr_accepted": 0,
+    }).eq("user_id", user_id).execute()
+    await db.table("bot_bookings").update({
+        "user_name": "[deleted]", "username": "[deleted]", "phone": "[deleted]",
+    }).eq("user_id", user_id).execute()
 
 
 # ══════════════════════════════════════════════════════════
-#  Кастомные слоты мастера на день
+#  Кастомные слоты мастера
 # ══════════════════════════════════════════════════════════
 
 async def add_master_custom_slot(master_id: str, date: str, time_start: str) -> bool:
-    """Добавить кастомный слот. Возвращает True если добавлен, False если уже есть."""
+    db = await _db()
     try:
-        async with aiosqlite.connect(DB_PATH) as db:
-            await db.execute(
-                "INSERT OR IGNORE INTO master_custom_slots (master_id, date, time_start) VALUES (?,?,?)",
-                (master_id, date, time_start)
-            )
-            await db.commit()
+        await db.table("bot_master_custom_slots").insert({
+            "master_id": master_id, "date": date, "time_start": time_start,
+        }).execute()
         return True
     except Exception:
         return False
 
 
 async def get_master_custom_slots(master_id: str, date: str) -> list[dict]:
-    """Все кастомные слоты мастера на дату, отсортированные по времени."""
-    async with aiosqlite.connect(DB_PATH) as db:
-        db.row_factory = aiosqlite.Row
-        async with db.execute(
-            "SELECT * FROM master_custom_slots WHERE master_id=? AND date=? ORDER BY time_start",
-            (master_id, date)
-        ) as cur:
-            return [dict(r) for r in await cur.fetchall()]
+    db = await _db()
+    res = await (db.table("bot_master_custom_slots")
+                 .select("*")
+                 .eq("master_id", master_id)
+                 .eq("date", date)
+                 .order("time_start").execute())
+    return res.data or []
 
 
 async def has_master_custom_slots(master_id: str, date: str) -> bool:
-    """Есть ли у мастера кастомные слоты на эту дату."""
-    async with aiosqlite.connect(DB_PATH) as db:
-        async with db.execute(
-            "SELECT COUNT(*) FROM master_custom_slots WHERE master_id=? AND date=?",
-            (master_id, date)
-        ) as cur:
-            count = (await cur.fetchone())[0]
-    return count > 0
+    db = await _db()
+    res = await (db.table("bot_master_custom_slots")
+                 .select("id", count="exact")
+                 .eq("master_id", master_id)
+                 .eq("date", date).execute())
+    return (res.count or 0) > 0
 
 
 async def delete_master_custom_slot(slot_id: int) -> None:
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute("DELETE FROM master_custom_slots WHERE id=?", (slot_id,))
-        await db.commit()
+    db = await _db()
+    await db.table("bot_master_custom_slots").delete().eq("id", slot_id).execute()
 
 
 async def clear_master_custom_slots(master_id: str, date: str) -> None:
-    """Удалить все кастомные слоты мастера на дату (только незанятые)."""
-    async with aiosqlite.connect(DB_PATH) as db:
-        # Удаляем только слоты без бронирований
-        await db.execute(
-            """DELETE FROM master_custom_slots
-               WHERE master_id=? AND date=?
-               AND time_start NOT IN (
-                   SELECT time_start FROM bookings
-                   WHERE master_id=? AND date=? AND status NOT IN ('cancelled','rejected')
-               )""",
-            (master_id, date, master_id, date)
-        )
-        await db.commit()
-
-
-async def get_period_stats(days: int) -> dict:
-    """Статистика за последние N дней."""
-    async with aiosqlite.connect(DB_PATH) as db:
-        # Записи за период
-        async with db.execute(
-            "SELECT COUNT(*) FROM bookings WHERE date >= date('now', ?)",
-            (f"-{days} days",)
-        ) as cur:
-            bookings_total = (await cur.fetchone())[0]
-
-        async with db.execute(
-            "SELECT COUNT(*) FROM bookings WHERE date >= date('now', ?) AND status = 'confirmed'",
-            (f"-{days} days",)
-        ) as cur:
-            bookings_confirmed = (await cur.fetchone())[0]
-
-        # Новые клиенты
-        async with db.execute(
-            "SELECT COUNT(*) FROM users WHERE created_at >= datetime('now', ?)",
-            (f"-{days} days",)
-        ) as cur:
-            new_clients = (await cur.fetchone())[0]
-
-        # Топ услуги
-        db.row_factory = aiosqlite.Row
-        async with db.execute(
-            """SELECT service, COUNT(*) as cnt FROM bookings
-               WHERE date >= date('now', ?) GROUP BY service ORDER BY cnt DESC LIMIT 5""",
-            (f"-{days} days",)
-        ) as cur:
-            top_services = [dict(r) for r in await cur.fetchall()]
-
-        # Топ мастера
-        async with db.execute(
-            """SELECT master, COUNT(*) as cnt FROM bookings
-               WHERE date >= date('now', ?) GROUP BY master ORDER BY cnt DESC LIMIT 5""",
-            (f"-{days} days",)
-        ) as cur:
-            top_masters = [dict(r) for r in await cur.fetchall()]
-
-        # Средний рейтинг
-        db.row_factory = None
-        async with db.execute("SELECT AVG(rating) FROM reviews") as cur:
-            avg_row = await cur.fetchone()
-            avg_rating = round(avg_row[0], 1) if avg_row and avg_row[0] else None
-
-        return {
-            "days": days,
-            "bookings_total": bookings_total,
-            "bookings_confirmed": bookings_confirmed,
-            "new_clients": new_clients,
-            "top_services": top_services,
-            "top_masters": top_masters,
-            "avg_rating": avg_rating,
-        }
+    # Удаляем слоты без активных бронирований
+    booked = await get_booked_slots(master_id, date)
+    booked_times = {s["time_start"] for s in booked}
+    slots = await get_master_custom_slots(master_id, date)
+    db = await _db()
+    for slot in slots:
+        if slot["time_start"] not in booked_times:
+            await db.table("bot_master_custom_slots").delete().eq("id", slot["id"]).execute()
 
 
 # ══════════════════════════════════════════════════════════
@@ -1353,180 +766,160 @@ async def get_period_stats(days: int) -> dict:
 # ══════════════════════════════════════════════════════════
 
 async def seed_services() -> None:
-    """Заполняет service_categories и services из salon.py если пустые."""
     from data.salon import SERVICES
-    async with aiosqlite.connect(DB_PATH) as db:
-        async with db.execute("SELECT COUNT(*) FROM service_categories") as cur:
-            if (await cur.fetchone())[0] > 0:
-                return
-        for sort_i, (cat_key, cat) in enumerate(SERVICES.items()):
-            await db.execute(
-                "INSERT OR IGNORE INTO service_categories (cat_key, title, sort_order) VALUES (?,?,?)",
-                (cat_key, cat["title"], sort_i)
-            )
-            for svc_sort, item in enumerate(cat["items"]):
-                await db.execute(
-                    """INSERT OR IGNORE INTO services
-                       (service_id, category, name, price, duration, sort_order)
-                       VALUES (?,?,?,?,?,?)""",
-                    (item["id"], cat_key, item["name"], item["price"], item["duration"], svc_sort)
-                )
-        await db.commit()
-    logger.info("Услуги перенесены в БД")
+    db = await _db()
+    res = await db.table("bot_service_categories").select("cat_key", count="exact").execute()
+    if (res.count or 0) > 0:
+        return
+    for sort_i, (cat_key, cat) in enumerate(SERVICES.items()):
+        await db.table("bot_service_categories").insert({
+            "cat_key": cat_key, "title": cat["title"], "sort_order": sort_i,
+        }).execute()
+        for svc_sort, item in enumerate(cat["items"]):
+            await db.table("bot_services").insert({
+                "service_id": item["id"], "category": cat_key, "name": item["name"],
+                "price": item["price"], "duration": item["duration"], "sort_order": svc_sort,
+            }).execute()
+    logger.info("Услуги перенесены в Supabase")
 
 
 async def get_categories() -> list[dict]:
-    """Все активные категории услуг, отсортированные."""
-    async with aiosqlite.connect(DB_PATH) as db:
-        db.row_factory = aiosqlite.Row
-        async with db.execute(
-            "SELECT * FROM service_categories WHERE is_active=1 ORDER BY sort_order, cat_key"
-        ) as cur:
-            return [dict(r) for r in await cur.fetchall()]
+    db = await _db()
+    res = await db.table("bot_service_categories").select("*").eq("is_active", 1).order("sort_order").order("cat_key").execute()
+    return res.data or []
 
 
 async def get_category_by_key(cat_key: str) -> dict | None:
-    """Получить категорию по ключу."""
-    async with aiosqlite.connect(DB_PATH) as db:
-        db.row_factory = aiosqlite.Row
-        async with db.execute(
-            "SELECT * FROM service_categories WHERE cat_key=?", (cat_key,)
-        ) as cur:
-            row = await cur.fetchone()
-            return dict(row) if row else None
+    db = await _db()
+    res = await db.table("bot_service_categories").select("*").eq("cat_key", cat_key).maybe_single().execute()
+    return res.data
 
 
 async def get_db_services_by_category(category: str) -> list[dict]:
-    """Активные услуги категории."""
-    async with aiosqlite.connect(DB_PATH) as db:
-        db.row_factory = aiosqlite.Row
-        async with db.execute(
-            "SELECT * FROM services WHERE category=? AND is_active=1 ORDER BY sort_order, id",
-            (category,)
-        ) as cur:
-            return [dict(r) for r in await cur.fetchall()]
+    db = await _db()
+    res = await db.table("bot_services").select("*").eq("category", category).eq("is_active", 1).order("sort_order").order("id").execute()
+    return res.data or []
 
 
 async def get_db_service_by_id(service_id: str) -> dict | None:
-    """Получить услугу по service_id."""
-    async with aiosqlite.connect(DB_PATH) as db:
-        db.row_factory = aiosqlite.Row
-        async with db.execute(
-            "SELECT * FROM services WHERE service_id=?", (service_id,)
-        ) as cur:
-            row = await cur.fetchone()
-            return dict(row) if row else None
+    db = await _db()
+    res = await db.table("bot_services").select("*").eq("service_id", service_id).maybe_single().execute()
+    return res.data
 
 
 async def get_all_services_admin() -> list[dict]:
-    """Все услуги включая неактивные — для панели администратора."""
-    async with aiosqlite.connect(DB_PATH) as db:
-        db.row_factory = aiosqlite.Row
-        async with db.execute(
-            """SELECT s.*, sc.title as cat_title FROM services s
-               LEFT JOIN service_categories sc ON s.category = sc.cat_key
-               ORDER BY s.category, s.sort_order, s.id"""
-        ) as cur:
-            return [dict(r) for r in await cur.fetchall()]
+    db = await _db()
+    res = await db.table("bot_services").select("*").order("category").order("sort_order").order("id").execute()
+    return res.data or []
 
 
 async def add_db_service(service_id: str, category: str, name: str,
                          price: int, duration: int) -> None:
-    """Добавить новую услугу."""
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute(
-            "INSERT INTO services (service_id, category, name, price, duration) VALUES (?,?,?,?,?)",
-            (service_id, category, name, price, duration)
-        )
-        await db.commit()
+    db = await _db()
+    await db.table("bot_services").insert({
+        "service_id": service_id, "category": category,
+        "name": name, "price": price, "duration": duration,
+    }).execute()
 
 
 async def update_db_service(service_id: str, **kwargs) -> None:
-    """Обновить поля услуги."""
     allowed = {"name", "price", "duration", "sort_order", "is_active", "category"}
     updates = {k: v for k, v in kwargs.items() if k in allowed}
     if not updates:
         return
-    set_clause = ", ".join(f"{k}=?" for k in updates)
-    values = list(updates.values()) + [service_id]
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute(
-            f"UPDATE services SET {set_clause} WHERE service_id=?", values
-        )
-        await db.commit()
+    db = await _db()
+    await db.table("bot_services").update(updates).eq("service_id", service_id).execute()
 
 
 async def delete_db_service(service_id: str) -> None:
-    """Удалить услугу."""
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute("DELETE FROM services WHERE service_id=?", (service_id,))
-        await db.commit()
+    db = await _db()
+    await db.table("bot_services").delete().eq("service_id", service_id).execute()
 
 
 async def add_db_category(cat_key: str, title: str) -> None:
-    """Добавить категорию услуг."""
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute(
-            "INSERT OR IGNORE INTO service_categories (cat_key, title) VALUES (?,?)",
-            (cat_key, title)
-        )
-        await db.commit()
+    db = await _db()
+    try:
+        await db.table("bot_service_categories").insert({"cat_key": cat_key, "title": title}).execute()
+    except Exception:
+        pass
 
 
 async def update_db_category(cat_key: str, **kwargs) -> None:
-    """Обновить категорию."""
     allowed = {"title", "sort_order", "is_active"}
     updates = {k: v for k, v in kwargs.items() if k in allowed}
     if not updates:
         return
-    set_clause = ", ".join(f"{k}=?" for k in updates)
-    values = list(updates.values()) + [cat_key]
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute(
-            f"UPDATE service_categories SET {set_clause} WHERE cat_key=?", values
-        )
-        await db.commit()
+    db = await _db()
+    await db.table("bot_service_categories").update(updates).eq("cat_key", cat_key).execute()
 
 
 async def get_specialist_label() -> str:
-    """Ярлык специалиста (ед.ч.) — мастер / тренер / врач / консультант."""
     return await get_setting("specialist_label", "мастер")
 
 
 async def get_specialists_label() -> str:
-    """Ярлык специалистов (мн.ч.) — для кнопки меню."""
     return await get_setting("specialists_label", "Специалисты")
 
 
 # ══════════════════════════════════════════════════════════
-#  Лог действий (audit log)
+#  Лог действий
 # ══════════════════════════════════════════════════════════
 
-async def log_action(
-    user_id: int,
-    action: str,
-    target: str = "",
-    status: str = "ok",
-    details: str = "",
-) -> None:
-    """Записывает действие в audit_log."""
+async def log_action(user_id: int, action: str, target: str = "",
+                     status: str = "ok", details: str = "") -> None:
     try:
-        async with aiosqlite.connect(DB_PATH) as db:
-            await db.execute(
-                """INSERT INTO audit_log (user_id, action, target, status, details)
-                   VALUES (?,?,?,?,?)""",
-                (user_id, action, target, status, details),
-            )
-            await db.commit()
+        db = await _db()
+        await db.table("bot_audit_log").insert({
+            "user_id": user_id, "action": action,
+            "target": target, "status": status, "details": details,
+        }).execute()
     except Exception as e:
         logger.error(f"log_action failed: {e}")
 
 
 async def get_audit_log(limit: int = 50) -> list[dict]:
-    """Возвращает последние `limit` записей лога."""
-    async with aiosqlite.connect(DB_PATH) as db:
-        db.row_factory = aiosqlite.Row
-        async with db.execute(
-            "SELECT * FROM audit_log ORDER BY id DESC LIMIT ?", (limit,)
-        ) as cur:
-            return [dict(r) for r in await cur.fetchall()]
+    db = await _db()
+    res = await db.table("bot_audit_log").select("*").order("id", desc=True).limit(limit).execute()
+    return res.data or []
+
+
+# ══════════════════════════════════════════════════════════
+#  Статистика за период
+# ══════════════════════════════════════════════════════════
+
+async def get_period_stats(days: int) -> dict:
+    from datetime import date, timedelta
+    since = (date.today() - timedelta(days=days)).isoformat()
+    db = await _db()
+
+    res = await db.table("bot_bookings").select("id", count="exact").gte("date", since).execute()
+    bookings_total = res.count or 0
+
+    res = await db.table("bot_bookings").select("id", count="exact").gte("date", since).eq("status", "confirmed").execute()
+    bookings_confirmed = res.count or 0
+
+    res = await db.table("bot_users").select("user_id", count="exact").gte("created_at", since).execute()
+    new_clients = res.count or 0
+
+    res = await db.table("bot_bookings").select("service").gte("date", since).execute()
+    from collections import Counter
+    svc_counter = Counter(r["service"] for r in (res.data or []) if r["service"])
+    top_services = [{"service": s, "cnt": c} for s, c in svc_counter.most_common(5)]
+
+    res = await db.table("bot_bookings").select("master").gte("date", since).execute()
+    master_counter = Counter(r["master"] for r in (res.data or []) if r["master"])
+    top_masters = [{"master": m, "cnt": c} for m, c in master_counter.most_common(5)]
+
+    res = await db.table("bot_reviews").select("rating").execute()
+    ratings = [r["rating"] for r in (res.data or []) if r["rating"] is not None]
+    avg_rating = round(sum(ratings) / len(ratings), 1) if ratings else None
+
+    return {
+        "days": days,
+        "bookings_total": bookings_total,
+        "bookings_confirmed": bookings_confirmed,
+        "new_clients": new_clients,
+        "top_services": top_services,
+        "top_masters": top_masters,
+        "avg_rating": avg_rating,
+    }
