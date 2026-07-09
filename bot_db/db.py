@@ -765,19 +765,20 @@ async def clear_master_custom_slots(master_id: str, date: str) -> None:
 async def seed_services() -> None:
     from data.salon import SERVICES
     db = await _db()
-    res = await db.table("bot_service_categories").select("cat_key", count="exact").execute()
-    if (res.count or 0) > 0:
-        return
+    cat_rows = []
+    svc_rows = []
     for sort_i, (cat_key, cat) in enumerate(SERVICES.items()):
-        await db.table("bot_service_categories").insert({
-            "cat_key": cat_key, "title": cat["title"], "sort_order": sort_i,
-        }).execute()
+        cat_rows.append({"cat_key": cat_key, "title": cat["title"], "sort_order": sort_i})
         for svc_sort, item in enumerate(cat["items"]):
-            await db.table("bot_services").insert({
+            svc_rows.append({
                 "service_id": item["id"], "category": cat_key, "name": item["name"],
                 "price": item["price"], "duration": item["duration"], "sort_order": svc_sort,
-            }).execute()
-    logger.info("Услуги перенесены в Supabase")
+            })
+    if cat_rows:
+        await db.table("bot_service_categories").upsert(cat_rows, on_conflict="cat_key").execute()
+    if svc_rows:
+        await db.table("bot_services").upsert(svc_rows, on_conflict="service_id").execute()
+    logger.info("Услуги синхронизированы с Supabase")
 
 
 async def get_categories() -> list[dict]:
