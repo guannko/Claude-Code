@@ -4,7 +4,6 @@ Supabase PostgreSQL вместо SQLite. Функции сохраняют те 
 """
 
 import logging
-from typing import Any
 from supabase import acreate_client, AsyncClient
 from config import SUPABASE_URL, SUPABASE_KEY
 
@@ -20,12 +19,16 @@ async def _db() -> AsyncClient:
     return _client
 
 
+def _one(res) -> dict | None:
+    """Возвращает первую запись из результата или None."""
+    return res.data[0] if res and res.data else None
+
+
 # ════════════════════════════════════════════════════════
 #  Инициализация (seed при первом запуске)
 # ════════════════════════════════════════════════════════
 
 async def init_db() -> None:
-    """Инициализация — seed данных если таблицы пустые."""
     logger.info("Подключение к Supabase...")
     await _db()
     await seed_master_schedules()
@@ -42,8 +45,8 @@ async def init_db() -> None:
 
 async def get_user(user_id: int) -> dict | None:
     db = await _db()
-    res = await db.table("bot_users").select("*").eq("user_id", user_id).maybe_single().execute()
-    return res.data
+    res = await db.table("bot_users").select("*").eq("user_id", user_id).limit(1).execute()
+    return _one(res)
 
 
 async def register_user(user_id: int, username: str, full_name: str, lang: str) -> None:
@@ -54,7 +57,7 @@ async def register_user(user_id: int, username: str, full_name: str, lang: str) 
             "full_name": full_name, "lang": lang,
         }).execute()
     except Exception:
-        pass  # уже существует
+        pass
 
 
 async def update_user_lang(user_id: int, lang: str) -> None:
@@ -123,7 +126,7 @@ async def get_today_users_count() -> int:
 async def get_last_user() -> dict | None:
     db = await _db()
     res = await db.table("bot_users").select("*").order("created_at", desc=True).limit(1).execute()
-    return res.data[0] if res.data else None
+    return _one(res)
 
 
 async def get_recent_users(limit: int = 10) -> list[dict]:
@@ -258,8 +261,8 @@ async def get_today_bookings_count() -> int:
 
 async def get_booking(booking_id: int) -> dict | None:
     db = await _db()
-    res = await db.table("bot_bookings").select("*").eq("id", booking_id).maybe_single().execute()
-    return res.data
+    res = await db.table("bot_bookings").select("*").eq("id", booking_id).limit(1).execute()
+    return _one(res)
 
 
 async def update_booking_status(booking_id: int, status: str) -> None:
@@ -303,8 +306,8 @@ async def get_master_schedule(master_id: str) -> list[dict]:
 
 async def toggle_master_day(master_id: str, day_of_week: int) -> int:
     db = await _db()
-    res = await db.table("bot_master_schedules").select("is_working").eq("master_id", master_id).eq("day_of_week", day_of_week).maybe_single().execute()
-    current = res.data["is_working"] if res.data else 1
+    res = await db.table("bot_master_schedules").select("is_working").eq("master_id", master_id).eq("day_of_week", day_of_week).limit(1).execute()
+    current = res.data[0]["is_working"] if res.data else 1
     new_val = 0 if current else 1
     await db.table("bot_master_schedules").update({"is_working": new_val}).eq("master_id", master_id).eq("day_of_week", day_of_week).execute()
     return new_val
@@ -362,8 +365,8 @@ async def seed_master_photos() -> None:
     from data.salon import MASTER_PHOTOS
     db = await _db()
     for master_id, photo_url in MASTER_PHOTOS.items():
-        res = await db.table("bot_masters").select("photo_file_id").eq("master_id", master_id).maybe_single().execute()
-        if res.data and not res.data.get("photo_file_id"):
+        res = await db.table("bot_masters").select("photo_file_id").eq("master_id", master_id).limit(1).execute()
+        if res.data and not res.data[0].get("photo_file_id"):
             await db.table("bot_masters").update({"photo_file_id": photo_url}).eq("master_id", master_id).execute()
 
 
@@ -375,8 +378,8 @@ async def get_masters_by_category(category: str) -> list[dict]:
 
 async def get_master(master_id: str) -> dict | None:
     db = await _db()
-    res = await db.table("bot_masters").select("*").eq("master_id", master_id).maybe_single().execute()
-    return res.data
+    res = await db.table("bot_masters").select("*").eq("master_id", master_id).limit(1).execute()
+    return _one(res)
 
 
 async def set_master_telegram_id(master_id: str, telegram_user_id: int | None) -> None:
@@ -386,8 +389,8 @@ async def set_master_telegram_id(master_id: str, telegram_user_id: int | None) -
 
 async def get_master_by_telegram_id(telegram_user_id: int) -> dict | None:
     db = await _db()
-    res = await db.table("bot_masters").select("*").eq("telegram_user_id", telegram_user_id).maybe_single().execute()
-    return res.data
+    res = await db.table("bot_masters").select("*").eq("telegram_user_id", telegram_user_id).limit(1).execute()
+    return _one(res)
 
 
 async def set_master_photo(master_id: str, photo_file_id: str) -> None:
@@ -397,8 +400,8 @@ async def set_master_photo(master_id: str, photo_file_id: str) -> None:
 
 async def get_master_photo(master_id: str) -> str | None:
     db = await _db()
-    res = await db.table("bot_masters").select("photo_file_id").eq("master_id", master_id).maybe_single().execute()
-    return res.data["photo_file_id"] if res.data else None
+    res = await db.table("bot_masters").select("photo_file_id").eq("master_id", master_id).limit(1).execute()
+    return res.data[0]["photo_file_id"] if res.data else None
 
 
 async def get_all_masters_with_photos() -> list[dict]:
@@ -437,8 +440,8 @@ async def update_master_description(master_id: str, description: str) -> None:
 
 async def toggle_master_active(master_id: str) -> int:
     db = await _db()
-    res = await db.table("bot_masters").select("is_active").eq("master_id", master_id).maybe_single().execute()
-    current = res.data["is_active"] if res.data else 1
+    res = await db.table("bot_masters").select("is_active").eq("master_id", master_id).limit(1).execute()
+    current = res.data[0]["is_active"] if res.data else 1
     new_val = 0 if current else 1
     await db.table("bot_masters").update({"is_active": new_val}).eq("master_id", master_id).execute()
     return new_val
@@ -469,15 +472,15 @@ async def remove_admin(user_id: int) -> None:
 
 async def is_admin_in_db(user_id: int) -> bool:
     db = await _db()
-    res = await db.table("bot_admins").select("user_id").eq("user_id", user_id).maybe_single().execute()
-    return res.data is not None
+    res = await db.table("bot_admins").select("user_id").eq("user_id", user_id).limit(1).execute()
+    return bool(res.data)
 
 
 async def get_user_by_username(username: str) -> dict | None:
     db = await _db()
     clean = username.lstrip("@").lower()
-    res = await db.table("bot_users").select("*").ilike("username", clean).maybe_single().execute()
-    return res.data
+    res = await db.table("bot_users").select("*").ilike("username", clean).limit(1).execute()
+    return _one(res)
 
 
 # ════════════════════════════════════════════════════════
@@ -527,8 +530,8 @@ async def create_review(booking_id: int, user_id: int, master_id: str,
 
 async def get_review_by_booking(booking_id: int) -> dict | None:
     db = await _db()
-    res = await db.table("bot_reviews").select("*").eq("booking_id", booking_id).maybe_single().execute()
-    return res.data
+    res = await db.table("bot_reviews").select("*").eq("booking_id", booking_id).limit(1).execute()
+    return _one(res)
 
 
 async def get_master_reviews(master_id: str, limit: int = 20) -> list[dict]:
@@ -608,8 +611,8 @@ async def get_client_note(master_id: str, client_user_id: int) -> str | None:
                  .select("note")
                  .eq("master_id", master_id)
                  .eq("client_user_id", client_user_id)
-                 .maybe_single().execute())
-    return res.data["note"] if res.data else None
+                 .limit(1).execute())
+    return res.data[0]["note"] if res.data else None
 
 
 # ════════════════════════════════════════════════════════
@@ -650,10 +653,9 @@ async def seed_salon_settings() -> None:
         "photo_booking": "", "photo_about": "", "photo_admin": "",
     }
     db = await _db()
-    rows = [{"key": k, "value": v} for k, v in defaults.items()]
     existing = await db.table("bot_salon_settings").select("key").execute()
     existing_keys = {r["key"] for r in (existing.data or [])}
-    new_rows = [r for r in rows if r["key"] not in existing_keys]
+    new_rows = [{"key": k, "value": v} for k, v in defaults.items() if k not in existing_keys]
     if new_rows:
         await db.table("bot_salon_settings").insert(new_rows).execute()
     await _refresh_settings()
@@ -789,8 +791,8 @@ async def get_categories() -> list[dict]:
 
 async def get_category_by_key(cat_key: str) -> dict | None:
     db = await _db()
-    res = await db.table("bot_service_categories").select("*").eq("cat_key", cat_key).maybe_single().execute()
-    return res.data
+    res = await db.table("bot_service_categories").select("*").eq("cat_key", cat_key).limit(1).execute()
+    return _one(res)
 
 
 async def get_db_services_by_category(category: str) -> list[dict]:
@@ -801,8 +803,8 @@ async def get_db_services_by_category(category: str) -> list[dict]:
 
 async def get_db_service_by_id(service_id: str) -> dict | None:
     db = await _db()
-    res = await db.table("bot_services").select("*").eq("service_id", service_id).maybe_single().execute()
-    return res.data
+    res = await db.table("bot_services").select("*").eq("service_id", service_id).limit(1).execute()
+    return _one(res)
 
 
 async def get_all_services_admin() -> list[dict]:
