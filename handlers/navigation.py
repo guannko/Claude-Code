@@ -245,8 +245,14 @@ async def cb_profile(callback: CallbackQuery, bot: Bot) -> None:
     user = callback.from_user
     lang = await get_user_lang(user.id)
     data = await get_user(user.id)
+
+    if not data:
+        # Пользователь не найден в БД — предлагаем /start
+        await callback.answer("⚠️ Профиль не найден. Напишите /start", show_alert=True)
+        return
+
     visits = await get_user_visit_count(user.id)
-    birthdate = (data or {}).get("birthdate") or "—"
+    birthdate = data.get("birthdate") or "—"
 
     base_text = t(
         "profile_title", lang,
