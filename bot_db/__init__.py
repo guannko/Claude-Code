@@ -57,6 +57,8 @@ from .db import (
     update_master_name,
     update_master_description,
     toggle_master_active,
+    get_master_buffer,
+    set_master_buffer,
     # Loyalty & birthdays
     increment_visit_count,
     get_user_visit_count,
@@ -174,6 +176,8 @@ __all__ = [
     "update_master_name",
     "update_master_description",
     "toggle_master_active",
+    "get_master_buffer",
+    "set_master_buffer",
     "increment_visit_count",
     "get_user_visit_count",
     "update_user_birthdate",
