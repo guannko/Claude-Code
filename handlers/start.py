@@ -1,23 +1,25 @@
 """
-/start — точка входа. Регистрирует пользователя, спрашивает имя, показывает меню.
+/start — точка входа. Регистрирует пользователя, спрашивает имя, телефон, показывает меню.
 """
 
 import logging
 from aiogram import Router, Bot
 from aiogram.filters import CommandStart
 from aiogram.fsm.context import FSMContext
-from aiogram.types import Message
+from aiogram.types import (
+    Message, InlineKeyboardMarkup, InlineKeyboardButton,
+    ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove,
+)
 from config import DEFAULT_LANG, ADMIN_ID, WELCOME_PHOTO_URL
 from bot_db import (
     get_user, register_user, get_user_lang, get_users_count,
-    save_last_msg_id, update_user_name, get_last_msg_id,
+    save_last_msg_id, update_user_name, update_user_phone, get_last_msg_id,
     mark_gdpr_accepted, delete_user_data, get_setting,
 )
 from keyboards import main_menu_kb, admin_panel_kb, main_menu_with_admin_kb
 from services.sender import send_menu, edit_menu
 from services.permissions import is_admin, is_owner
 from states import RegistrationStates
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from data.salon import SECTION_PHOTOS
 
 logger = logging.getLogger(__name__)
@@ -220,38 +222,151 @@ async def msg_entering_name(message: Message, bot: Bot, state: FSMContext) -> No
             await save_last_msg_id(message.from_user.id, menu_msg_id)
         return
 
-    # Обычный клиент
+    # Обычный клиент — спрашиваем номер телефона
     from bot_db import get_user_lang as _get_lang
     client_lang = await _get_lang(message.from_user.id)
     if client_lang == "en":
-        greeting_text = f"✨ Nice to meet you, <b>{name}</b>!\n\nChoose a section 👇"
+        greeting_text = f"✨ Nice to meet you, <b>{name}</b>!\n\n📱 Share your phone number so we can contact you:"
+        phone_btn = "📱 Share my number"
+        skip_btn = "⏭ Skip"
+        phone_prompt = "👆 Tap the button or type your number:"
     else:
-        greeting_text = f"✨ Приятно познакомиться, <b>{name}</b>!\n\nВыберите раздел 👇"
+        greeting_text = f"✨ Приятно познакомиться, <b>{name}</b>!\n\n📱 Поделитесь номером телефона, чтобы мы могли с вами связаться:"
+        phone_btn = "📱 Поделиться номером"
+        skip_btn = "⏭ Пропустить"
+        phone_prompt = "👆 Нажмите кнопку или введите номер вручную:"
+
+    phone_kb = ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text=phone_btn, request_contact=True)],
+            [KeyboardButton(text=skip_btn)],
+        ],
+        resize_keyboard=True,
+        one_time_keyboard=True,
+    )
+
+    # Обновляем фото-сообщение с приветствием (без кнопок меню)
+    if menu_msg_id:
+        try:
+            await bot.edit_message_caption(
+                chat_id=message.chat.id, message_id=menu_msg_id,
+                caption=greeting_text, parse_mode="HTML",
+            )
+        except Exception:
+            try:
+                await bot.edit_message_text(
+                    chat_id=message.chat.id, message_id=menu_msg_id,
+                    text=greeting_text, parse_mode="HTML",
+                )
+            except Exception:
+                pass
+
+    # Отправляем отдельное сообщение с reply-клавиатурой
+    phone_msg = await bot.send_message(
+        chat_id=message.chat.id,
+        text=phone_prompt,
+        reply_markup=phone_kb,
+        parse_mode="HTML",
+    )
+
+    await state.set_state(RegistrationStates.entering_phone)
+    await state.update_data(
+        menu_msg_id=menu_msg_id,
+        lang=client_lang,
+        phone_msg_id=phone_msg.message_id,
+        user_name=name,
+    )
+
+
+@router.message(RegistrationStates.entering_phone)
+async def msg_entering_phone(message: Message, bot: Bot, state: FSMContext) -> None:
+    data = await state.get_data()
+    menu_msg_id = data.get("menu_msg_id")
+    phone_msg_id = data.get("phone_msg_id")
+    client_lang = data.get("lang", "ru")
+    user_name = data.get("user_name", "")
+
+    # Определяем телефон из контакта или текста
+    phone = None
+    skip_words = ("⏭ Пропустить", "⏭ Skip", "пропустить", "skip")
+    if message.contact:
+        phone = message.contact.phone_number
+    elif message.text:
+        txt = message.text.strip()
+        if txt.lower() not in [w.lower() for w in skip_words]:
+            cleaned = "".join(c for c in txt if c.isdigit() or c == "+")
+            if len(cleaned) >= 7:
+                phone = cleaned
+            else:
+                # Невалидный ввод — просим ещё раз
+                try:
+                    await message.delete()
+                except Exception:
+                    pass
+                if client_lang == "en":
+                    await bot.send_message(
+                        chat_id=message.chat.id,
+                        text="❌ Please enter a valid phone number (7+ digits) or tap Skip.",
+                    )
+                else:
+                    await bot.send_message(
+                        chat_id=message.chat.id,
+                        text="❌ Введите корректный номер телефона (от 7 цифр) или нажмите Пропустить.",
+                    )
+                return
+
+    # Удаляем сообщение пользователя и reply-клавиатуру
+    try:
+        await message.delete()
+    except Exception:
+        pass
+    if phone_msg_id:
+        try:
+            await bot.delete_message(chat_id=message.chat.id, message_id=phone_msg_id)
+        except Exception:
+            pass
+
+    # Сохраняем телефон если есть
+    if phone:
+        await update_user_phone(message.from_user.id, phone)
+
+    await state.clear()
+
+    # Убираем reply-клавиатуру (невидимым сообщением)
+    try:
+        rm = await bot.send_message(
+            chat_id=message.chat.id, text="​",
+            reply_markup=ReplyKeyboardRemove(),
+        )
+        await bot.delete_message(chat_id=message.chat.id, message_id=rm.message_id)
+    except Exception:
+        pass
+
+    # Показываем главное меню
+    if client_lang == "en":
+        menu_text = f"✨ Welcome, <b>{user_name}</b>!\n\nChoose a section 👇"
+    else:
+        menu_text = f"✨ Добро пожаловать, <b>{user_name}</b>!\n\nВыберите раздел 👇"
 
     if menu_msg_id:
-        # Редактируем caption фото-сообщения (фото остаётся, добавляем кнопки)
         await edit_menu(
             bot, message.chat.id, menu_msg_id,
-            greeting_text, main_menu_kb(client_lang),
-            photo_url=None,  # фото не меняем
+            menu_text, main_menu_kb(client_lang),
+            photo_url=None,
         )
         await save_last_msg_id(message.from_user.id, menu_msg_id)
     else:
         main_photo = SECTION_PHOTOS.get("main", WELCOME_PHOTO_URL)
         try:
             new_msg = await bot.send_photo(
-                chat_id=message.chat.id,
-                photo=main_photo,
-                caption=greeting_text,
-                reply_markup=main_menu_kb(client_lang),
+                chat_id=message.chat.id, photo=main_photo,
+                caption=menu_text, reply_markup=main_menu_kb(client_lang),
                 parse_mode="HTML",
             )
         except Exception:
             new_msg = await bot.send_message(
-                chat_id=message.chat.id,
-                text=greeting_text,
-                reply_markup=main_menu_kb(client_lang),
-                parse_mode="HTML",
+                chat_id=message.chat.id, text=menu_text,
+                reply_markup=main_menu_kb(client_lang), parse_mode="HTML",
             )
         await save_last_msg_id(message.from_user.id, new_msg.message_id)
 

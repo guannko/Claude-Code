@@ -8,6 +8,7 @@ from aiogram.fsm.state import State, StatesGroup
 
 class RegistrationStates(StatesGroup):
     entering_name = State()
+    entering_phone = State()
 
 
 class SettingsStates(StatesGroup):
@@ -65,6 +66,8 @@ class AdminStates(StatesGroup):
     master_editing_tg = State()
     master_adding_name = State()
     master_adding_category = State()
+    # Client messaging
+    sending_client_message = State()
 
 
 # ── Отзывы ────────────────────────────────────────────────

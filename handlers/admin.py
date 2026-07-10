@@ -274,12 +274,8 @@ async def _show_users_page(callback, bot, offset: int = 0) -> None:
     )
 
 
-@router.callback_query(F.data.startswith("adm:user:"))
-async def cb_adm_user_card(callback: CallbackQuery, bot: Bot) -> None:
-    if not await is_admin(callback.from_user.id):
-        await callback.answer("⛔ Нет доступа.", show_alert=True)
-        return
-    user_id = int(callback.data[len("adm:user:"):])
+async def _render_user_card(callback: CallbackQuery, bot: Bot, user_id: int) -> None:
+    """Отрисовывает карточку клиента в сообщении."""
     from bot_db import get_user as _get_user, get_master_by_telegram_id
     u = await _get_user(user_id)
     if not u:
@@ -289,6 +285,7 @@ async def cb_adm_user_card(callback: CallbackQuery, bot: Bot) -> None:
     master = await get_master_by_telegram_id(user_id)
     name = u.get("full_name") or u.get("username") or str(user_id)
     uname = f"@{u['username']}" if u.get("username") else "—"
+    phone = u.get("phone") or "—"
     date = (u.get("created_at") or "—")[:10]
     master_status = f"👩‍🎨 Мастер: <b>{master['name']}</b> ({master.get('category','')})" if master else "👤 Статус: клиент"
 
@@ -296,6 +293,7 @@ async def cb_adm_user_card(callback: CallbackQuery, bot: Bot) -> None:
         f"👤 <b>{name}</b>\n\n"
         f"🔗 {uname}\n"
         f"🆔 <code>{user_id}</code>\n"
+        f"📞 {phone}\n"
         f"📅 В системе с: {date}\n\n"
         f"{master_status}"
     )
@@ -311,6 +309,10 @@ async def cb_adm_user_card(callback: CallbackQuery, bot: Bot) -> None:
             text="👩‍🎨 Карточка мастера",
             callback_data=f"adm:master:{master['master_id']}",
         )])
+    rows.append([InlineKeyboardButton(
+        text="✉️ Написать сообщение",
+        callback_data=f"adm:msg:{user_id}",
+    )])
     rows.append([InlineKeyboardButton(text="◀️ К списку", callback_data="adm:users")])
     kb = InlineKeyboardMarkup(inline_keyboard=rows)
 
@@ -318,7 +320,111 @@ async def cb_adm_user_card(callback: CallbackQuery, bot: Bot) -> None:
         bot, callback.message.chat.id, callback.message.message_id,
         text, kb, photo_url=SECTION_PHOTOS.get("admin"),
     )
+
+
+@router.callback_query(F.data.startswith("adm:user:"))
+async def cb_adm_user_card(callback: CallbackQuery, bot: Bot) -> None:
+    if not await is_admin(callback.from_user.id):
+        await callback.answer("⛔ Нет доступа.", show_alert=True)
+        return
+    user_id = int(callback.data[len("adm:user:"):])
+    await _render_user_card(callback, bot, user_id)
     await callback.answer()
+
+
+# ── Написать сообщение клиенту ───────────────────────────────
+
+@router.callback_query(F.data.startswith("adm:msg:"))
+async def cb_adm_msg_client(callback: CallbackQuery, bot: Bot, state: FSMContext) -> None:
+    if not await is_admin(callback.from_user.id):
+        await callback.answer("⛔ Нет доступа.", show_alert=True)
+        return
+    target_user_id = int(callback.data[len("adm:msg:"):])
+    from bot_db import get_user as _get_user
+    u = await _get_user(target_user_id)
+    name = (u or {}).get("full_name") or str(target_user_id)
+
+    await state.set_state(AdminStates.sending_client_message)
+    await state.update_data(
+        target_user_id=target_user_id,
+        target_name=name,
+        adm_msg_id=callback.message.message_id,
+    )
+
+    cancel_kb = InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="◀️ Отмена", callback_data=f"adm:cancel_msg:{target_user_id}"),
+    ]])
+    await edit_menu(
+        bot, callback.message.chat.id, callback.message.message_id,
+        f"✉️ <b>Сообщение для {name}</b>\n\nВведите текст сообщения — он будет отправлен клиенту в личные сообщения:",
+        cancel_kb,
+        photo_url=SECTION_PHOTOS.get("admin"),
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("adm:cancel_msg:"))
+async def cb_adm_cancel_msg(callback: CallbackQuery, bot: Bot, state: FSMContext) -> None:
+    await state.clear()
+    user_id = int(callback.data[len("adm:cancel_msg:"):])
+    await _render_user_card(callback, bot, user_id)
+    await callback.answer()
+
+
+@router.message(AdminStates.sending_client_message)
+async def msg_adm_send_client_message(message: Message, bot: Bot, state: FSMContext) -> None:
+    if not await is_admin(message.from_user.id):
+        return
+
+    data = await state.get_data()
+    target_user_id = data.get("target_user_id")
+    target_name = data.get("target_name", str(target_user_id))
+    adm_msg_id = data.get("adm_msg_id")
+
+    text = (message.text or "").strip()
+
+    try:
+        await message.delete()
+    except Exception:
+        pass
+
+    if not text:
+        return
+
+    await state.clear()
+
+    sent_ok = False
+    try:
+        await bot.send_message(
+            chat_id=target_user_id,
+            text=f"💬 <b>Сообщение от администратора Studio ONE:</b>\n\n{text}",
+            parse_mode="HTML",
+        )
+        sent_ok = True
+    except Exception as e:
+        logger.warning("Не удалось отправить сообщение клиенту %s: %s", target_user_id, e)
+
+    if adm_msg_id:
+        if sent_ok:
+            result_text = (
+                f"✅ <b>Сообщение отправлено!</b>\n\n"
+                f"👤 Получатель: <b>{target_name}</b>\n"
+                f"📝 Текст: {text[:120]}{'...' if len(text) > 120 else ''}"
+            )
+        else:
+            result_text = (
+                f"❌ <b>Не удалось отправить сообщение</b>\n\n"
+                f"👤 {target_name} возможно заблокировал бот или ещё не запускал его."
+            )
+        back_kb = InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text="◀️ К клиенту", callback_data=f"adm:user:{target_user_id}"),
+            InlineKeyboardButton(text="👥 К списку", callback_data="adm:users"),
+        ]])
+        await edit_menu(
+            bot, message.chat.id, adm_msg_id,
+            result_text, back_kb,
+            photo_url=SECTION_PHOTOS.get("admin"),
+        )
 
 
 # ── Фото-панель: статистика ─────────────────────────────────
