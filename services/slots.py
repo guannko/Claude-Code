@@ -55,7 +55,7 @@ async def get_all_slots(master_id: str, target_date: date, duration_minutes: int
 
 
 async def get_free_slots(master_id: str, target_date: date, duration_minutes: int) -> list[str]:
-    from bot_db.db import get_booked_slots, has_master_custom_slots, get_master_custom_slots
+    from bot_db.db import get_booked_slots, has_master_custom_slots, get_master_custom_slots, get_master_buffer
 
     date_str = target_date.isoformat()
     if await has_master_custom_slots(master_id, date_str):
@@ -68,13 +68,14 @@ async def get_free_slots(master_id: str, target_date: date, duration_minutes: in
         return []
 
     booked = await get_booked_slots(master_id, date_str)
+    buffer = await get_master_buffer(master_id)
 
     def is_busy(slot_time: str) -> bool:
         slot_dt = datetime.strptime(slot_time, "%H:%M")
         slot_end = slot_dt + timedelta(minutes=duration_minutes)
         for b in booked:
             b_start = datetime.strptime(b["time_start"], "%H:%M")
-            b_end = b_start + timedelta(minutes=b["duration"] or duration_minutes)
+            b_end = b_start + timedelta(minutes=(b["duration"] or duration_minutes) + buffer)
             if slot_dt < b_end and slot_end > b_start:
                 return True
         return False
