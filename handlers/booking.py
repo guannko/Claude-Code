@@ -69,6 +69,14 @@ def _admin_dismiss_kb(booking_id: int) -> InlineKeyboardMarkup:
     ]])
 
 
+def _master_ack_kb(booking_id: int) -> InlineKeyboardMarkup:
+    """Кнопки подтверждения/отклонения записи для мастера."""
+    return InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="✅ Принял в работу", callback_data=f"master_booking:ack:{booking_id}"),
+        InlineKeyboardButton(text="❌ Не смогу",         callback_data=f"master_booking:reject:{booking_id}"),
+    ]])
+
+
 # ── Шаг 1: старт — выбор категории ────────────────────────
 
 @router.callback_query(F.data == "book:start")
@@ -634,7 +642,7 @@ async def cb_booking_confirm(callback: CallbackQuery, bot: Bot, state: FSMContex
         await callback.answer("Слот занят, выберите другое время.", show_alert=True)
         return
 
-    # Уведомляем мастера если привязан TG
+    # Уведомляем мастера если привязан TG — с кнопками подтверждения
     try:
         from bot_db import get_master
         master_db = await get_master(data.get("master_id", ""))
@@ -643,11 +651,13 @@ async def cb_booking_confirm(callback: CallbackQuery, bot: Bot, state: FSMContex
                 chat_id=master_db["telegram_user_id"],
                 text=(
                     f"📋 <b>Новая запись!</b>\n\n"
-                    f"👤 Клиент: {data.get('client_name', client_name)}\n"
+                    f"👤 Клиент: {client_name}\n"
                     f"💅 Услуга: {data.get('service_name', '—')}\n"
-                    f"📅 {data.get('date', date_str)} в {data.get('time_start', '—')}\n"
-                    f"📞 {data.get('phone', '—')}"
+                    f"📅 {date_formatted} в {data.get('time_start', '—')}\n"
+                    f"📞 {data.get('phone', '—')}\n\n"
+                    f"<i>Подтвердите, что берёте запись в работу:</i>"
                 ),
+                reply_markup=_master_ack_kb(booking_id),
                 parse_mode="HTML",
             )
     except Exception as e:
@@ -818,6 +828,132 @@ async def cb_admin_booking_action(callback: CallbackQuery, bot: Bot) -> None:
     except Exception:
         pass
     await callback.answer(status_text)
+
+
+# ── Мастер принял запись ─────────────────────────────────
+
+@router.callback_query(F.data.startswith("master_booking:ack:"))
+async def cb_master_booking_ack(callback: CallbackQuery, bot: Bot) -> None:
+    booking_id = int(callback.data.split(":")[2])
+    booking = await get_booking(booking_id)
+    if not booking:
+        await callback.answer("Запись не найдена.", show_alert=True)
+        return
+
+    # Убираем кнопки, показываем что принял
+    try:
+        original = callback.message.text or ""
+        await callback.message.edit_text(
+            original + "\n\n✅ <b>Вы приняли эту запись в работу</b>",
+            reply_markup=None,
+            parse_mode="HTML",
+        )
+    except Exception:
+        pass
+
+    # Уведомляем клиента
+    try:
+        await bot.send_message(
+            chat_id=booking["user_id"],
+            text=(
+                "✅ <b>Мастер взял вашу запись в работу!</b>\n\n"
+                f"💅 {booking['service']}\n"
+                f"👤 Мастер: {booking['master']}\n"
+                f"📅 {booking['date']} в {booking['time_start']}\n\n"
+                "Ждём вас! 😊"
+            ),
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
+                InlineKeyboardButton(text="🏠 В меню", callback_data="notify:dismiss"),
+            ]]),
+            parse_mode="HTML",
+        )
+    except Exception as e:
+        logger.warning("Не удалось уведомить клиента: %s", e)
+
+    await callback.answer("✅ Запись принята в работу!")
+
+
+# ── Мастер отклонил запись ───────────────────────────────
+
+@router.callback_query(F.data.startswith("master_booking:reject:"))
+async def cb_master_booking_reject(callback: CallbackQuery, bot: Bot) -> None:
+    booking_id = int(callback.data.split(":")[2])
+    booking = await get_booking(booking_id)
+    if not booking:
+        await callback.answer("Запись не найдена.", show_alert=True)
+        return
+
+    await update_booking_status(booking_id, "rejected")
+
+    # Убираем кнопки у мастера
+    try:
+        original = callback.message.text or ""
+        await callback.message.edit_text(
+            original + "\n\n❌ <b>Вы отклонили эту запись</b>",
+            reply_markup=None,
+            parse_mode="HTML",
+        )
+    except Exception:
+        pass
+
+    # Уведомляем клиента
+    try:
+        salon_phone = await _get_salon_phone()
+        await bot.send_message(
+            chat_id=booking["user_id"],
+            text=(
+                "❌ <b>К сожалению, мастер не может принять вашу запись.</b>\n\n"
+                f"💅 {booking['service']}\n"
+                f"📅 {booking['date']} в {booking['time_start']}\n\n"
+                f"Пожалуйста, выберите другое время или позвоните нам: {salon_phone}"
+            ),
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
+                InlineKeyboardButton(text="📅 Записаться снова", callback_data="book:start"),
+                InlineKeyboardButton(text="🏠 В меню",           callback_data="notify:dismiss"),
+            ]]),
+            parse_mode="HTML",
+        )
+    except Exception as e:
+        logger.warning("Не удалось уведомить клиента: %s", e)
+
+    # Уведомляем администратора
+    if ADMIN_ID:
+        try:
+            await bot.send_message(
+                chat_id=ADMIN_ID,
+                text=(
+                    f"⚠️ <b>Мастер отклонил запись #{booking_id}</b>\n\n"
+                    f"👤 Клиент: {booking['user_name']}\n"
+                    f"💅 Услуга: {booking['service']}\n"
+                    f"👩‍🎨 Мастер: {booking['master']}\n"
+                    f"📅 {booking['date']} в {booking['time_start']}"
+                ),
+                parse_mode="HTML",
+            )
+        except Exception as e:
+            logger.warning("Не удалось уведомить админа об отклонении: %s", e)
+
+    await callback.answer("❌ Запись отклонена")
+
+
+# ── Dismiss-кнопки для уведомлений ──────────────────────
+
+@router.callback_query(F.data.startswith("adm_notify:dismiss:"))
+async def cb_adm_notify_dismiss(callback: CallbackQuery) -> None:
+    try:
+        await callback.message.edit_reply_markup(reply_markup=None)
+    except Exception:
+        pass
+    await callback.answer("✅ OK")
+
+
+@router.callback_query(F.data == "notify:dismiss")
+async def cb_notify_dismiss(callback: CallbackQuery) -> None:
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass
+    await callback.answer()
 
 
 # ── Возврат в главное меню из FSM ────────────────────────
