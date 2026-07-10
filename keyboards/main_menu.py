@@ -178,6 +178,7 @@ def master_panel_kb(lang: str = "ru") -> InlineKeyboardMarkup:
         [InlineKeyboardButton(text="📋 Мои записи",          callback_data="mst_panel:bookings")],
         [InlineKeyboardButton(text="🗓 Мой день",             callback_data="mst_day:home")],
         [InlineKeyboardButton(text="📅 Недельное расписание", callback_data="mst_panel:schedule")],
+        [InlineKeyboardButton(text="⏱ Интервал между записями", callback_data="mst_panel:buffer")],
         [InlineKeyboardButton(text="👥 Мои клиенты",          callback_data="mst_clients:list")],
         [InlineKeyboardButton(text="🖼 Добавить в галерею",   callback_data="gallery:master_upload")],
         [
