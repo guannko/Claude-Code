@@ -447,6 +447,18 @@ async def toggle_master_active(master_id: str) -> int:
     return new_val
 
 
+async def get_master_buffer(master_id: str) -> int:
+    """Возвращает интервал (в минутах) между записями мастера."""
+    master = await get_master(master_id)
+    return (master or {}).get("buffer_minutes", 0) or 0
+
+
+async def set_master_buffer(master_id: str, minutes: int) -> None:
+    """Устанавливает интервал (в минутах) между записями мастера."""
+    db = await _db()
+    await db.table("bot_masters").update({"buffer_minutes": minutes}).eq("master_id", master_id).execute()
+
+
 # ════════════════════════════════════════════════════════
 #  Администраторы
 # ════════════════════════════════════════════════════════
